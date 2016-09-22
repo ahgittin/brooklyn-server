@@ -49,10 +49,13 @@ import org.apache.brooklyn.core.mgmt.usage.LocationUsage;
 import org.apache.brooklyn.core.mgmt.usage.UsageListener;
 import org.apache.brooklyn.core.mgmt.usage.UsageManager;
 import org.apache.brooklyn.util.core.flags.TypeCoercions;
+import org.apache.brooklyn.util.core.osgi.Osgis;
 import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.guava.Maybe;
 import org.apache.brooklyn.util.javalang.Reflections;
+import org.apache.brooklyn.util.osgi.OsgiUtil;
 import org.apache.brooklyn.util.time.Duration;
+import org.osgi.framework.ServiceReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -140,7 +143,15 @@ public class LocalUsageManager implements UsageManager {
     static {
         TypeCoercions.registerAdapter(String.class, UsageListener.class, new Function<String, UsageListener>() {
             @Override public UsageListener apply(String input) {
-                // TODO Want to use classLoader = mgmt.getCatalog().getRootClassLoader();
+                if (OsgiUtil.isBrooklynInsideFramework()) {                    
+                    ServiceReference<?> sr = Osgis.getActiveFramework().getBundleContext().getServiceReference(input);
+                    if (sr!=null) {
+                        return (UsageListener) Osgis.getActiveFramework().getBundleContext().getService(sr);
+                    }
+                }
+                
+                // legacy non-osgi approach; might be nice to have access to mgmt.getCatalog().getRootClassLoader();
+                // but osgi is much better for that in any case
                 ClassLoader classLoader = LocalUsageManager.class.getClassLoader();
                 Maybe<Object> result = Reflections.invokeConstructorFromArgs(classLoader, input);
                 if (result.isPresent()) {

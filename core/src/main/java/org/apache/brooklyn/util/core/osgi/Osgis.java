@@ -38,10 +38,12 @@ import org.apache.brooklyn.util.guava.Maybe;
 import org.apache.brooklyn.util.net.Urls;
 import org.apache.brooklyn.util.os.Os;
 import org.apache.brooklyn.util.osgi.OsgiUtils;
+import org.apache.brooklyn.util.osgi.SystemFramework;
 import org.apache.brooklyn.util.stream.Streams;
 import org.apache.brooklyn.util.text.Strings;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleException;
+import org.osgi.framework.FrameworkUtil;
 import org.osgi.framework.Version;
 import org.osgi.framework.launch.Framework;
 import org.slf4j.Logger;
@@ -305,6 +307,17 @@ public class Osgis {
     public static Framework getFramework(String felixCacheDir, boolean clean) {
         return SystemFrameworkLoader.get().getFramework(felixCacheDir, clean);
     }
+    
+    public static Framework getActiveFramework() {
+        // also see SystemFrameworkLoader.get() but note felix impl there always creates a new one
+        // this is based on other impls i've seen (alex)
+        final Bundle bundle = FrameworkUtil.getBundle(Osgis.class);
+        return (Framework) bundle.getBundleContext().getBundle(0);
+    }
+    
+    public static SystemFramework getSystemFramework() {
+        return SystemFrameworkLoader.get();
+    }
 
     /**
      * Stops/ungets the OSGi framework.
@@ -444,4 +457,5 @@ public class Osgis {
         Bundle bundle = org.osgi.framework.FrameworkUtil.getBundle(clazz);
         return Optional.fromNullable(bundle);
     }
+
 }

@@ -21,15 +21,13 @@ import java.util.Enumeration;
 
 import org.apache.brooklyn.util.osgi.SystemFramework;
 import org.osgi.framework.Bundle;
-import org.osgi.framework.FrameworkUtil;
 import org.osgi.framework.launch.Framework;
 
 public class ContainerFramework implements SystemFramework {
 
     @Override
     public Framework getFramework(String felixCacheDir, boolean clean) {
-        final Bundle bundle = FrameworkUtil.getBundle(Osgis.class);
-        return (Framework) bundle.getBundleContext().getBundle(0);
+        return Osgis.getActiveFramework();
     }
 
     @Override
