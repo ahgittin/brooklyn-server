@@ -31,18 +31,20 @@ public class ReferenceWithError<T> implements Supplier<T> {
     private final Throwable error;
     private final boolean maskError;
 
-    /** returns a reference which includes an error, and where attempts to get the content cause the error to throw */
-    public static <T> ReferenceWithError<T> newInstanceThrowingError(T object, Throwable error) {
+    /** returns a reference which includes an error, and where attempts to get the content cause the error to throw
+     * (unless the error supplied is null in which case behaviour is as per {@link #newInstanceWithoutError(Object)}) */
+    public static <T,U extends T> ReferenceWithError<T> newInstanceThrowingError(@Nullable U object, @Nullable Throwable error) {
         return new ReferenceWithError<T>(object, error, false);
     }
     
-    /** returns a reference which includes an error, but attempts to get the content do not cause the error to throw */
-    public static <T> ReferenceWithError<T> newInstanceMaskingError(T object, Throwable error) {
+    /** returns a reference which includes an error, but attempts to get the content do not cause the error to throw
+     * (unless the error supplied is null in which case behaviour is as per {@link #newInstanceWithoutError(Object)}) */
+    public static <T,U extends T> ReferenceWithError<T> newInstanceMaskingError(@Nullable U object, @Nullable Throwable error) {
         return new ReferenceWithError<T>(object, error, true);
     }
     
-    /** returns a reference which includes an error, but attempts to get the content do not cause the error to throw */
-    public static <T> ReferenceWithError<T> newInstanceWithoutError(T object) {
+    /** returns a reference which does not have any error; attempts to get the content are safe */
+    public static <T,U extends T> ReferenceWithError<T> newInstanceWithoutError(@Nullable U object) {
         return new ReferenceWithError<T>(object, null, false);
     }
     
@@ -60,6 +62,7 @@ public class ReferenceWithError<T> implements Supplier<T> {
     }
 
     /** returns the underlying value, throwing if there is an error which is not masked (ie {@link #throwsErrorOnAccess()} is set) */
+    @Override
     public T get() {
         if (masksErrorIfPresent()) {
             return getWithoutError();
@@ -84,7 +87,7 @@ public class ReferenceWithError<T> implements Supplier<T> {
             Exceptions.propagate(error);
     }
 
-    /** returns the error (not throwing) */
+    /** returns the error (not throwing) or null if no error */
     public Throwable getError() {
         return error;
     }

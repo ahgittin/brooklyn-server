@@ -34,6 +34,7 @@ import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.mgmt.ha.HighAvailabilityMode;
 import org.apache.brooklyn.api.mgmt.ha.ManagementNodeState;
 import org.apache.brooklyn.api.mgmt.rebind.RebindExceptionHandler;
+import org.apache.brooklyn.api.mgmt.rebind.RebindManager;
 import org.apache.brooklyn.api.mgmt.rebind.mementos.BrooklynMemento;
 import org.apache.brooklyn.api.mgmt.rebind.mementos.BrooklynMementoPersister;
 import org.apache.brooklyn.api.mgmt.rebind.mementos.BrooklynMementoRawData;
@@ -47,9 +48,6 @@ import org.apache.brooklyn.core.mgmt.persist.BrooklynMementoPersisterToObjectSto
 import org.apache.brooklyn.core.mgmt.persist.FileBasedObjectStore;
 import org.apache.brooklyn.core.mgmt.persist.PersistMode;
 import org.apache.brooklyn.core.mgmt.persist.PersistenceObjectStore;
-import org.apache.brooklyn.core.mgmt.rebind.PersistenceExceptionHandlerImpl;
-import org.apache.brooklyn.core.mgmt.rebind.RebindExceptionHandlerImpl;
-import org.apache.brooklyn.core.mgmt.rebind.RebindManagerImpl;
 import org.apache.brooklyn.core.mgmt.rebind.Dumpers.Pointer;
 import org.apache.brooklyn.core.mgmt.rebind.dto.MementosGenerators;
 import org.apache.brooklyn.core.server.BrooklynServerConfig;
@@ -70,7 +68,9 @@ public class RebindTestUtils {
 
     private static final Logger LOG = LoggerFactory.getLogger(RebindTestUtils.class);
 
-    private static final Duration TIMEOUT = Duration.seconds(20);
+    // Virtualbox sometimes hangs for exactly 30 seconds on rename(3) or delete(3), confirmed by strace.
+    // See FileBasedStoreObjectAccessorWriterTest.testSimpleOperationsDelay() for a simple test to reproduce it.
+    private static final Duration TIMEOUT = Duration.seconds(40);
 
     public static <T> T serializeAndDeserialize(T memento) throws Exception {
         ObjectReplacer replacer = new ObjectReplacer() {
@@ -150,9 +150,11 @@ public class RebindTestUtils {
         BrooklynProperties properties;
         PersistenceObjectStore objectStore;
         Duration persistPeriod = Duration.millis(100);
+        HighAvailabilityMode haMode;
         boolean forLive;
         boolean enableOsgi = false;
         boolean emptyCatalog;
+        private boolean enablePersistenceBackups = true;
         
         ManagementContextBuilder(File mementoDir, ClassLoader classLoader) {
             this(classLoader, new FileBasedObjectStore(mementoDir));
@@ -185,6 +187,10 @@ public class RebindTestUtils {
             return this;
         }
 
+        public ManagementContextBuilder enablePersistenceBackups(boolean val) {
+            this.enablePersistenceBackups  = val;
+            return this;
+        }
         public ManagementContextBuilder enableOsgi(boolean val) {
             this.enableOsgi = val;
             return this;
@@ -200,6 +206,11 @@ public class RebindTestUtils {
             return this;
         }
 
+        public ManagementContextBuilder haMode(HighAvailabilityMode val) {
+            this.haMode = val;
+            return this;
+        }
+
         public LocalManagementContext buildUnstarted() {
             LocalManagementContext unstarted;
             BrooklynProperties properties = this.properties != null
@@ -208,6 +219,11 @@ public class RebindTestUtils {
             if (this.emptyCatalog) {
                 properties.putIfAbsent(BrooklynServerConfig.BROOKLYN_CATALOG_URL, ManagementContextInternal.EMPTY_CATALOG_URL);
             }
+            if (!enablePersistenceBackups) {
+                properties.putIfAbsent(BrooklynServerConfig.PERSISTENCE_BACKUPS_REQUIRED_ON_DEMOTION, false);
+                properties.putIfAbsent(BrooklynServerConfig.PERSISTENCE_BACKUPS_REQUIRED_ON_PROMOTION, false);
+                properties.putIfAbsent(BrooklynServerConfig.PERSISTENCE_BACKUPS_REQUIRED, false);
+            }
             if (forLive) {
                 unstarted = new LocalManagementContext(properties);
             } else {
@@ -215,7 +231,7 @@ public class RebindTestUtils {
             }
             
             objectStore.injectManagementContext(unstarted);
-            objectStore.prepareForSharedUse(PersistMode.AUTO, HighAvailabilityMode.DISABLED);
+            objectStore.prepareForSharedUse(PersistMode.AUTO, (haMode == null ? HighAvailabilityMode.DISABLED : haMode));
             BrooklynMementoPersisterToObjectStore newPersister = new BrooklynMementoPersisterToObjectStore(
                     objectStore, 
                     unstarted.getBrooklynProperties(), 
@@ -316,10 +332,14 @@ public class RebindTestUtils {
     
     public static Application rebind(RebindOptions options) throws Exception {
         Collection<Application> newApps = rebindAll(options);
-        if (newApps.isEmpty()) throw new IllegalStateException("Application could not be rebinded; serialization probably failed");
-        return Iterables.getFirst(newApps, null);
+        if (newApps.isEmpty()) throw new IllegalStateException("Application could not be found after rebind; serialization probably failed");
+        Function<Collection<Application>, Application> chooser = options.applicationChooserOnRebind;
+        if (chooser != null) {
+            return chooser.apply(newApps);
+        } else {
+            return Iterables.getFirst(newApps, null);
+        }
     }
-
 
     /**
      * @deprecated since 0.7.0; use {@link #rebindAll(RebindOptions)}
@@ -384,6 +404,7 @@ public class RebindTestUtils {
         ManagementContextInternal origManagementContext = (ManagementContextInternal) options.origManagementContext;
         ManagementContextInternal newManagementContext = (ManagementContextInternal) options.newManagementContext;
         PersistenceObjectStore objectStore = options.objectStore;
+        HighAvailabilityMode haMode = (options.haMode == null ? HighAvailabilityMode.DISABLED : options.haMode);
         RebindExceptionHandler exceptionHandler = options.exceptionHandler;
         boolean hasPersister = newManagementContext != null && newManagementContext.getRebindManager().getPersister() != null;
         boolean checkSerializable = options.checkSerializable;
@@ -402,7 +423,7 @@ public class RebindTestUtils {
                 objectStore = new FileBasedObjectStore(checkNotNull(mementoDir, "mementoDir and objectStore must not both be null"));
             }
             objectStore.injectManagementContext(newManagementContext);
-            objectStore.prepareForSharedUse(PersistMode.AUTO, HighAvailabilityMode.DISABLED);
+            objectStore.prepareForSharedUse(PersistMode.AUTO, haMode);
             
             BrooklynMementoPersisterToObjectStore newPersister = new BrooklynMementoPersisterToObjectStore(
                     objectStore,
@@ -433,7 +454,10 @@ public class RebindTestUtils {
             stateTransformer.apply(persister);
         }
         
-        List<Application> newApps = newManagementContext.getRebindManager().rebind(classLoader, exceptionHandler, ManagementNodeState.MASTER);
+        List<Application> newApps = newManagementContext.getRebindManager().rebind(
+                classLoader, 
+                exceptionHandler, 
+                (haMode == HighAvailabilityMode.DISABLED) ? ManagementNodeState.MASTER : ManagementNodeState.of(haMode).get());
         newManagementContext.getRebindManager().startPersistence();
         return newApps;
     }
@@ -444,6 +468,16 @@ public class RebindTestUtils {
 
     public static void waitForPersisted(ManagementContext managementContext) throws InterruptedException, TimeoutException {
         managementContext.getRebindManager().waitForPendingComplete(TIMEOUT, true);
+    }
+
+    public static void stopPersistence(Application origApp) throws InterruptedException, TimeoutException {
+        stopPersistence(origApp.getManagementContext());
+    }
+
+    public static void stopPersistence(ManagementContext managementContext) throws InterruptedException, TimeoutException {
+        RebindManager rebindManager = managementContext.getRebindManager();
+        rebindManager.waitForPendingComplete(TIMEOUT, true);
+        rebindManager.stop();
     }
 
     public static void checkCurrentMementoSerializable(Application app) throws Exception {

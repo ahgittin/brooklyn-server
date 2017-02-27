@@ -18,7 +18,7 @@
  */
 package org.apache.brooklyn.core.mgmt.internal;
 
-import static org.apache.brooklyn.util.groovy.GroovyJavaMethods.truth;
+import static org.apache.brooklyn.util.JavaGroovyEquivalents.groovyTruth;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -74,7 +74,7 @@ public class EffectorUtils {
      * the values.
      */
     public static Object[] prepareArgsForEffector(Effector<?> eff, Map<?,?> args) {
-        return prepareArgsForEffectorFromMap(eff, (Map<?,?>) args);
+        return prepareArgsForEffectorFromMap(eff, args);
     }
 
     /** prepares arguments for an effector either accepting:
@@ -156,7 +156,7 @@ public class EffectorUtils {
         for (int index = 0; index < eff.getParameters().size(); index++) {
             ParameterType<?> it = eff.getParameters().get(index);
             Object v;
-            if (truth(it.getName()) && m.containsKey(it.getName())) {
+            if (groovyTruth(it.getName()) && m.containsKey(it.getName())) {
                 // argument is in the map
                 v = m.remove(it.getName());
             } else if (it instanceof BasicParameterType && ((BasicParameterType)it).hasDefaultValue()) {
@@ -223,7 +223,7 @@ public class EffectorUtils {
             if (l.size() >= newArgsNeeded) {
                 //all supplied (unnamed) arguments must be used; ignore map
                 newArgs.add(l.remove(0));
-            } else if (truth(m) && truth(it.getName()) && m.containsKey(it.getName())) {
+            } else if (groovyTruth(m) && groovyTruth(it.getName()) && m.containsKey(it.getName())) {
                 //some arguments were not supplied, and this one is in the map
                 newArgs.add(m.remove(it.getName()));
             } else if (index == 0 && Map.class.isAssignableFrom(it.getParameterClass())) {
@@ -249,7 +249,7 @@ public class EffectorUtils {
         if (!l.isEmpty()) {
             throw new IllegalArgumentException("Invalid arguments ("+l.size()+" extra) for effector "+eff+": "+argsArray.length+" args");
         }
-        if (truth(m) && !mapUsed) {
+        if (groovyTruth(m) && !mapUsed) {
             throw new IllegalArgumentException("Invalid arguments ("+m.size()+" extra named) for effector "+eff+": "+argsArray.length+" args");
         }
         return newArgs.toArray(new Object[newArgs.size()]);
@@ -278,9 +278,7 @@ public class EffectorUtils {
                 mgmtSupport.getEntityChangeListener().onEffectorCompleted(eff);
             }
         } catch (Exception e) {
-            handleEffectorException(entity, eff, e);
-            // (won't return below)
-            return null;
+            throw handleEffectorException(entity, eff, e);
         }
     }
 
@@ -319,11 +317,12 @@ public class EffectorUtils {
                 
             EffectorCallPropagatedRuntimeException result = new EffectorCallPropagatedRuntimeException(entity, effector, throwable);
             log.warn(Exceptions.collapseText(result));
+            log.debug(makeMessage(entity, effector), throwable);
             throw result;
         }
     }
     
-    public static void handleEffectorException(Entity entity, Effector<?> effector, Throwable throwable) {
+    public static RuntimeException handleEffectorException(Entity entity, Effector<?> effector, Throwable throwable) {
         throw EffectorCallPropagatedRuntimeException.propagate(entity, effector, throwable);
     }
 
@@ -391,6 +390,7 @@ public class EffectorUtils {
     }
 
     /** @deprecated since 0.7.0 use {@link #getTaskFlagsForEffectorInvocation(Entity, Effector, ConfigBag)} */
+    @Deprecated
     public static Map<Object,Object> getTaskFlagsForEffectorInvocation(Entity entity, Effector<?> effector) {
         return getTaskFlagsForEffectorInvocation(entity, effector, null);
     }

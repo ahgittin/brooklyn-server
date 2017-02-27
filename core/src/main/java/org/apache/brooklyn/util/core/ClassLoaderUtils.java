@@ -15,6 +15,9 @@
  */
 package org.apache.brooklyn.util.core;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.net.URL;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -29,11 +32,13 @@ import org.apache.brooklyn.core.catalog.internal.CatalogUtils;
 import org.apache.brooklyn.core.entity.EntityInternal;
 import org.apache.brooklyn.core.mgmt.ha.OsgiManager;
 import org.apache.brooklyn.core.mgmt.internal.ManagementContextInternal;
+import org.apache.brooklyn.util.core.LoaderDispatcher.ClassLoaderDispatcher;
+import org.apache.brooklyn.util.core.LoaderDispatcher.MultipleResourceLoaderDispatcher;
+import org.apache.brooklyn.util.core.LoaderDispatcher.ResourceLoaderDispatcher;
 import org.apache.brooklyn.util.core.osgi.Osgis;
-import org.apache.brooklyn.util.core.osgi.SystemFrameworkLoader;
 import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.guava.Maybe;
-import org.apache.brooklyn.util.osgi.SystemFramework;
+import org.apache.brooklyn.util.osgi.OsgiUtils;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.FrameworkUtil;
@@ -41,21 +46,27 @@ import org.osgi.framework.launch.Framework;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.annotations.Beta;
+import com.google.common.base.Joiner;
+import com.google.common.base.Objects;
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
 
 public class ClassLoaderUtils {
+    
+    private static final Logger log = LoggerFactory.getLogger(ClassLoaderUtils.class);
+
     /**
      * White list format should be 
      * <bundle symbolic name regex>[:<bundle version regex in dotted format (X.X.X.SNAPSHOT, instead of X.X.X-SNAPSHOT)>]
      */
-    private static final String WHITE_LIST_DEFAULT = "org\\.apache\\.brooklyn\\..*:" + BrooklynVersion.get().replaceFirst("-", ".");
-    private static final String WHITE_LIST_KEY = "org.apache.brooklyn.classloader.fallback.bundles";
-    private static final String CLASS_NAME_DELIMITER = ":";
-    private static final Logger log = LoggerFactory.getLogger(ClassLoaderUtils.class);
+    static final String WHITE_LIST_KEY = "org.apache.brooklyn.classloader.fallback.bundles";
+    static final String CLASS_NAME_DELIMITER = ":";
+    private static final String WHITE_LIST_DEFAULT = "org\\.apache\\.brooklyn\\..*:" + OsgiUtils.toOsgiVersion(BrooklynVersion.get());
 
     // Class.forName gets the class loader from the calling class.
     // We don't have access to the same reflection API so need to pass it explicitly.
-    private final Class<?> callingClass;
+    private final ClassLoader classLoader;
     private final Entity entity;
     private final ManagementContext mgmt;
 
@@ -67,29 +78,124 @@ public class ClassLoaderUtils {
     }
 
     public ClassLoaderUtils(Class<?> callingClass) {
-        this.callingClass = callingClass;
+        checkNotNull(callingClass, "callingClass");
+        this.classLoader = getValidClassLoader(callingClass.getClassLoader());
         this.entity = null;
         this.mgmt = null;
     }
 
+    public ClassLoaderUtils(@Nullable ClassLoader cl) {
+        this.classLoader = getValidClassLoader(cl);
+        this.entity = null;
+        this.mgmt = null;
+    }
+
+    public ClassLoaderUtils(@Nullable ClassLoader cl, @Nullable ManagementContext mgmt) {
+        this.classLoader = getValidClassLoader(cl);
+        this.entity = null;
+        this.mgmt = checkNotNull(mgmt, "mgmt");
+    }
+
     public ClassLoaderUtils(Class<?> callingClass, Entity entity) {
-        this.callingClass = callingClass;
-        this.entity = entity;
+        checkNotNull(callingClass, "callingClass");
+        this.classLoader = getValidClassLoader(callingClass.getClassLoader());
+        this.entity = checkNotNull(entity, "entity");
         this.mgmt = ((EntityInternal)entity).getManagementContext();
     }
 
     public ClassLoaderUtils(Class<?> callingClass, @Nullable ManagementContext mgmt) {
-        this.callingClass = callingClass;
+        checkNotNull(callingClass, "callingClass");
+        this.classLoader = getValidClassLoader(callingClass.getClassLoader());
         this.entity = null;
         this.mgmt = mgmt;
     }
 
+    // class.getClassLoader() could return null for classes on the boot class path,
+    // provide an alternative in this case.
+    protected ClassLoader getValidClassLoader(ClassLoader cl) {
+        return (cl != null) ? cl : getClass().getClassLoader();
+    }
+
+    /**
+     * Loads the given class, handle OSGi bundles. The class could be in one of the following formats:
+     * <ul>
+     *   <li>{@code <classname>}, such as {@code com.google.common.net.HostAndPort}
+     *   <li>{@code <bunde-symbolicName>:<classname>}, such as {@code com.google.guava:com.google.common.net.HostAndPort}
+     *   <li>{@code <bunde-symbolicName>:<bundle-version>:<classname>}, such as {@code com.google.guava:16.0.1:com.google.common.net.HostAndPort}
+     * </ul>
+     * 
+     * The classloading order is as follows:
+     * <ol>
+     *   <li>If the class explicitly states the bundle name and version, then load from that.
+     *   <li>Otherwise try to load from the catalog's classloader. This is so we respect any 
+     *       {@code libraries} supplied in the catalog metadata, and can thus handle updating 
+     *       catalog versions. It also means we can try our best to handle a catalog that
+     *       uses a different bundle version from something that ships with Brooklyn.
+     *   <li>The white-listed bundles (i.e. those that ship with Brooklyn). We prefer the 
+     *       version of the bundle that Brooklyn depends on, rather than taking the highest
+     *       version installed (e.g. Karaf has Guava 16.0.1 and 18.0; we want the former, which
+     *       Brooklyn uses).
+     *   <li>The classloader passed in. Normally this is a boring unhelpful classloader (e.g.
+     *       obtained from {@code callingClass.getClassLoader()}), so won't work. But it's up
+     *       to the caller if they pass in something more useful.
+     *   <li>The {@link ManagementContext#getCatalogClassLoader()}. Again, this is normally not helpful. 
+     *       We instead would prefer the specific catalog item's classloader (which we tried earlier).
+     *   <li>If we were given a bundle name without a version, then finally try just using the
+     *       most recent version of the bundle that is available in the OSGi container.
+     * </ol>
+     * 
+     * The list of "white-listed bundles" are controlled using the system property named
+     * {@link #WHITE_LIST_KEY}, defaulting to all {@code org.apache.brooklyn.*} bundles.
+     */
     public Class<?> loadClass(String name) throws ClassNotFoundException {
+        Maybe<Class<?>> cls = load(name, ClassLoaderDispatcher.INSTANCE);
+        if (cls.isPresent()) {
+            return cls.get();
+        } else {
+            throw new ClassNotFoundException("Class " + name + " not found on the application class path, nor in the bundle white list.", getReturnException(cls));
+        }
+    }
+
+    public Class<?> loadClass(String symbolicName, @Nullable String version, String className) throws ClassNotFoundException {
+        try {
+            return tryLoadFromBundle(ClassLoaderDispatcher.INSTANCE, symbolicName, version, className).get();
+        } catch (IllegalStateException e) {
+            throw new ClassNotFoundException("Class " + className + " could not be loaded from bundle " + toBundleString(symbolicName, version), e);
+        }
+    }
+
+    /**
+     * Finds the resource with the given name.
+     * @see {@link #loadClass(String)} for loading order
+     *
+     * @return null when no resource is found
+     */
+    public URL getResource(String name) {
+        return load(stripLeadingSlash(name), ResourceLoaderDispatcher.INSTANCE).orNull();
+    }
+
+    /**
+     * Finds all the resources with the given name. Aborts going through subsequent fallbacks when it finds at least one resource.
+     * @see {@link #loadClass(String)} for loading order
+     * 
+     * @return empty {@link Iterable} when no resources find
+     */
+    public Iterable<URL> getResources(String name) {
+        Maybe<Iterable<URL>> ret = load(stripLeadingSlash(name), MultipleResourceLoaderDispatcher.INSTANCE);
+        if (ret.isPresent()) {
+            return ret.get();
+        } else {
+            return ImmutableList.of();
+        }
+    }
+
+    protected <T> Maybe<T> load(String name, LoaderDispatcher<T> dispatcher) {
+        String symbolicName;
+        String version;
+        String className;
+
         if (looksLikeBundledClassName(name)) {
             String[] arr = name.split(CLASS_NAME_DELIMITER);
-            String symbolicName;
-            String version;
-            String className;
             if (arr.length > 3) {
                 throw new IllegalStateException("'" + name + "' doesn't look like a class name and contains too many colons to be parsed as bundle:version:class triple.");
             } else if (arr.length == 3) {
@@ -103,7 +209,16 @@ public class ClassLoaderUtils {
             } else {
                 throw new IllegalStateException("'" + name + "' contains a bundle:version:class delimiter, but only one of those specified");
             }
-            return loadClass(symbolicName, version, className);
+        } else {
+            symbolicName = null;
+            version = null;
+            className = name;
+        }
+
+        Maybe<T> cls;
+        if (symbolicName != null && version != null) {
+            // Very explicit; do as we're told!
+            return tryLoadFromBundle(dispatcher, symbolicName, version, className);
         }
 
         if (entity != null && mgmt != null) {
@@ -112,16 +227,9 @@ public class ClassLoaderUtils {
                 CatalogItem<?, ?> item = CatalogUtils.getCatalogItemOptionalVersion(mgmt, catalogItemId);
                 if (item != null) {
                     BrooklynClassLoadingContext loader = CatalogUtils.newClassLoadingContext(mgmt, item);
-                    try {
-                        return loader.loadClass(name);
-                    } catch (IllegalStateException e) {
-                        ClassNotFoundException cnfe = Exceptions.getFirstThrowableOfType(e, ClassNotFoundException.class);
-                        NoClassDefFoundError ncdfe = Exceptions.getFirstThrowableOfType(e, NoClassDefFoundError.class);
-                        if (cnfe == null && ncdfe == null) {
-                            throw e;
-                        } else {
-                            // ignore, fall back to Class.forName(...)
-                        }
+                    cls = dispatcher.tryLoadFrom(loader, className);
+                    if (cls.isPresent()) {
+                        return cls;
                     }
                 } else {
                     log.warn("Entity " + entity + " refers to non-existent catalog item " + catalogItemId + ". Trying to load class " + name);
@@ -129,51 +237,56 @@ public class ClassLoaderUtils {
             }
         }
 
-        try {
-            // Used instead of callingClass.getClassLoader() as it could be null (only for bootstrap classes)
-            return Class.forName(name, true, callingClass.getClassLoader());
-        } catch (ClassNotFoundException e) {
+        cls = tryLoadFromBundleWhiteList(dispatcher, className);
+        if (cls.isPresent()) {
+            return cls;
+        }
+
+        cls = dispatcher.tryLoadFrom(classLoader, className);
+        if (cls.isPresent()) {
+            return cls;
         }
 
         if (mgmt != null) {
-            try {
-                return mgmt.getCatalogClassLoader().loadClass(name);
-            } catch (ClassNotFoundException e) {
+            cls = dispatcher.tryLoadFrom(mgmt.getCatalogClassLoader(), className);
+            if (cls.isPresent()) {
+                return cls;
             }
         }
 
-        Class<?> cls = tryLoadFromBundleWhiteList(name);
-        if (cls != null) {
-            return cls;
-        } else {
-            throw new ClassNotFoundException("Class " + name + " not found on the application class path, nor in the bundle white list.");
+        if (symbolicName != null) {
+            cls = tryLoadFromBundle(dispatcher, symbolicName, version, className);
+            if (cls.isPresent()) {
+                return cls;
+            }
         }
+
+        return Maybe.absentNull();
     }
 
-    public Class<?> loadClass(String symbolicName, @Nullable String version, String className) throws ClassNotFoundException {
+    protected <T> Maybe<T> tryLoadFromBundle(LoaderDispatcher<T> dispatcher, String symbolicName, String version, String name) {
         Framework framework = getFramework();
         if (framework != null) {
             Maybe<Bundle> bundle = Osgis.bundleFinder(framework)
                 .symbolicName(symbolicName)
-                .version(version)
+                .version(OsgiUtils.toOsgiVersion(version))
                 .find();
-            if (bundle.isAbsent() && version != null) {
-                bundle = Osgis.bundleFinder(framework)
-                    .symbolicName(symbolicName)
-                    // Convert X.X.X-SNAPSHOT to X.X.X.SNAPSHOT. Any better way to do it?
-                    .version(version.replace("-", "."))
-                    .find();
-            }
             if (bundle.isAbsent()) {
-                throw new IllegalStateException("Bundle " + symbolicName + ":" + (version != null ? version : "any") + " not found to load class " + className);
+                throw new IllegalStateException("Bundle " + toBundleString(symbolicName, version) + " not found to load " + name);
             }
-            return SystemFrameworkLoader.get().loadClassFromBundle(className, bundle.get());
+            return dispatcher.tryLoadFrom(bundle.get(), name);
         } else {
-            return Class.forName(className);
+            return dispatcher.tryLoadFrom(classLoader, name);
         }
     }
 
-    protected Framework getFramework() {
+    @Beta
+    public boolean isBundleWhiteListed(Bundle bundle) {
+        WhiteListBundlePredicate p = createBundleMatchingPredicate();
+        return p.apply(bundle);
+    }
+
+    private Framework getFramework() {
         if (mgmt != null) {
             Maybe<OsgiManager> osgiManager = ((ManagementContextInternal)mgmt).getOsgiManager();
             if (osgiManager.isPresent()) {
@@ -197,12 +310,12 @@ public class ClassLoaderUtils {
     }
 
 
-    private static class WhiteListBundlePredicate implements Predicate<Bundle> {
-        private Pattern symbolicName;
-        private Pattern version;
+    protected static class WhiteListBundlePredicate implements Predicate<Bundle> {
+        private final Pattern symbolicName;
+        private final Pattern version;
 
         private WhiteListBundlePredicate(String symbolicName, String version) {
-            this.symbolicName = Pattern.compile(symbolicName);
+            this.symbolicName = Pattern.compile(checkNotNull(symbolicName, "symbolicName"));
             this.version = version != null ? Pattern.compile(version) : null;
         }
 
@@ -211,26 +324,23 @@ public class ClassLoaderUtils {
             return symbolicName.matcher(input.getSymbolicName()).matches() &&
                     (version == null || version.matcher(input.getVersion().toString()).matches());
         }
-    
     }
 
-    private Class<?> tryLoadFromBundleWhiteList(String name) {
+    protected <T> Maybe<T> tryLoadFromBundleWhiteList(LoaderDispatcher<T> dispatcher, String className) {
         Framework framework = getFramework();
         if (framework == null) {
-            return null;
+            return Maybe.absentNull();
         }
         List<Bundle> bundles = Osgis.bundleFinder(framework)
             .satisfying(createBundleMatchingPredicate())
             .findAll();
-        SystemFramework bundleLoader = SystemFrameworkLoader.get();
         for (Bundle b : bundles) {
-            try {
-                return bundleLoader.loadClassFromBundle(name, b);
-            } catch (Exception e) {
-                Exceptions.propagateIfFatal(e);
+            Maybe<T> item = dispatcher.tryLoadFrom(b, className);
+            if (item.isPresent()) {
+                return item;
             }
         }
-        return null;
+        return Maybe.absentNull();
     }
 
     protected WhiteListBundlePredicate createBundleMatchingPredicate() {
@@ -246,4 +356,42 @@ public class ClassLoaderUtils {
         return new WhiteListBundlePredicate(symbolicName, version);
     }
 
+    private String toBundleString(String symbolicName, String version) {
+        return symbolicName + ":" + (version != null ? version : "any");
+    }
+
+    /**
+     * cls should always be isAbsent()
+     * @return null for cls.isNull(). Otherwise return the exception that's contained in the Maybe.
+     */
+    protected Exception getReturnException(Maybe<Class<?>> cls) {
+        if (cls.isNull()) {
+            return null;
+        }
+        try {
+            cls.get();
+            return null;
+        } catch (Exception e) {
+            Exceptions.propagateIfFatal(e);
+            return e;
+        }
+    }
+
+    // ClassLoader.getResource returns null if there's a leading slash
+    private String stripLeadingSlash(String name) {
+        String[] arr = name.split(":");
+        int last = arr.length - 1;
+        if (arr[last].startsWith("/")) {
+            arr[last] = arr[last].substring(1);
+        }
+        return Joiner.on(":").join(arr);
+    }
+    
+    @Override
+    public String toString() {
+        return getClass().getSimpleName() + "[" + Objects.toStringHelper(this)
+            .add("claddLoader", classLoader)
+            .add("entity", entity)
+            .add("mgmt", mgmt) + "]";
+    }
 }

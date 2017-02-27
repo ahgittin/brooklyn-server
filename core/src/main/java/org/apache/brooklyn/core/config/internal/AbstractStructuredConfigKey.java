@@ -55,10 +55,12 @@ public abstract class AbstractStructuredConfigKey<T,RawT,V> extends BasicConfigK
         return contender.toString();
     }
     
+    @Override
     public boolean acceptsKeyMatch(Object contender) {
         return (getName().equalsIgnoreCase(getKeyName(contender)));
     }
     
+    @Override
     public boolean acceptsSubkey(Object contender) {
         return contender!=null && getKeyName(contender).startsWith(getName()+".");        
     }
@@ -94,19 +96,19 @@ public abstract class AbstractStructuredConfigKey<T,RawT,V> extends BasicConfigK
             Object k = entry.getKey();
             // we don't resolve the key above because this map is the root map;
             // deferred values as keys must be at an explicit config key entry
-            
+
             if (acceptsKeyMatch(k)) {
                 try {
                     base = extractValueMatchingThisKey(entry.getValue(), exec, coerce);
                 } catch (Exception e) { throw Exceptions.propagate(e); }
             }
-            
+
             if (acceptsSubkey(k)) {
                 String subKeyName = extractSubKeyName(k);
                 Object value;
                 if (coerce) {
                     @SuppressWarnings("unchecked")
-                    SubElementConfigKey<V> kk = k instanceof SubElementConfigKey<?> ? 
+                    SubElementConfigKey<V> kk = k instanceof SubElementConfigKey<?> ?
                         (SubElementConfigKey<V>) k : (SubElementConfigKey<V>) subKey(subKeyName);
                     value = kk.extractValue(vals, exec);
                 } else {

@@ -102,15 +102,13 @@ public class SimpleShellCommandDeprecatedIntegrationTest extends BrooklynAppUnit
         }
     }
 
-    private List<Map<String, Object>> makeAssertions(Map<String, Object> ...maps) {
-        ArrayList<Map<String, Object>> assertions = new ArrayList<>();
-        for (Map<String, Object> map : maps) {
+    private List<Map<String, ?>> makeAssertions(Map<String, ?> ...maps) {
+        ArrayList<Map<String, ?>> assertions = new ArrayList<>();
+        for (Map<String, ?> map : maps) {
             assertions.add(map);
         }
         return assertions;
     }
-
-
 
     @Test(groups = "Integration")
     public void shouldSucceedUsingSuccessfulExitAsDefaultCondition() {
@@ -118,7 +116,7 @@ public class SimpleShellCommandDeprecatedIntegrationTest extends BrooklynAppUnit
 
         SimpleShellCommandTest uptime = app.createAndManageChild(EntitySpec.create(SimpleShellCommandTest.class)
             .configure(TARGET_ENTITY, testEntity)
-            .configure(COMMAND, "uptime"));
+            .configure(COMMAND, "date"));
 
         app.start(ImmutableList.<Location>of());
 
@@ -140,7 +138,8 @@ public class SimpleShellCommandDeprecatedIntegrationTest extends BrooklynAppUnit
         try {
             app.start(ImmutableList.<Location>of());
         } catch (Throwable t) {
-            Asserts.expectedFailureContains(t, "exit code equals 0");
+            // Used to be "but found 1", I'm getting "but found 2". Could be OS specific.
+            Asserts.expectedFailureContains(t, "exit code expected equals 0 but found ");
         }
 
         assertThat(uptime.sensors().get(SERVICE_UP)).isFalse()
@@ -193,8 +192,9 @@ public class SimpleShellCommandDeprecatedIntegrationTest extends BrooklynAppUnit
 
         try {
             app.start(ImmutableList.<Location>of());
+            Asserts.shouldHaveFailedPreviously();
         } catch (Exception e) {
-            Asserts.expectedFailureContains(e, "exit code equals 1", "exit code equals 255");
+            Asserts.expectedFailureContains(e, "exit code expected equals 1", "exit code expected equals 255");
         }
 
         assertThat(ServiceStateLogic.getExpectedState(uptime)).isEqualTo(Lifecycle.ON_FIRE)

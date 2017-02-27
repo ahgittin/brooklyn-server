@@ -20,24 +20,27 @@ package org.apache.brooklyn.test.framework;
 
 import static org.apache.brooklyn.test.framework.TestFrameworkAssertions.getAssertions;
 
+import java.net.URI;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.core.entity.lifecycle.Lifecycle;
+import org.apache.brooklyn.core.entity.lifecycle.ServiceStateLogic;
+import org.apache.brooklyn.test.framework.TestFrameworkAssertions.AssertionOptions;
+import org.apache.brooklyn.util.exceptions.Exceptions;
+import org.apache.brooklyn.util.guava.Maybe;
+import org.apache.brooklyn.util.http.HttpTool;
+import org.apache.brooklyn.util.time.Duration;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.methods.HttpRequestBase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-
-import org.apache.brooklyn.api.location.Location;
-import org.apache.brooklyn.core.entity.Attributes;
-import org.apache.brooklyn.core.entity.lifecycle.Lifecycle;
-import org.apache.brooklyn.core.entity.lifecycle.ServiceStateLogic;
-import org.apache.brooklyn.util.exceptions.Exceptions;
-import org.apache.brooklyn.util.http.HttpTool;
-import org.apache.brooklyn.util.time.Duration;
 
 /**
  * {@inheritDoc}
@@ -49,71 +52,106 @@ public class TestHttpCallImpl extends TargetableTestComponentImpl implements Tes
     /**
      * {@inheritDoc}
      */
+    @Override
     public void start(Collection<? extends Location> locations) {
-        if (!getChildren().isEmpty()) {
-            throw new RuntimeException(String.format("The entity [%s] cannot have child entities", getClass().getName()));
-        }
+        String url = null;
+
         ServiceStateLogic.setExpectedState(this, Lifecycle.STARTING);
-        final String url = getConfig(TARGET_URL);
-        final List<Map<String, Object>> assertions = getAssertions(this, ASSERTIONS);
-        final Duration timeout = getConfig(TIMEOUT);
-        final HttpAssertionTarget target = getConfig(ASSERTION_TARGET);
 
         try {
-            doRequestAndCheckAssertions(ImmutableMap.of("timeout", timeout), assertions, target, url);
-            sensors().set(Attributes.SERVICE_UP, true);
-            ServiceStateLogic.setExpectedState(this, Lifecycle.RUNNING);
+            url = getRequiredConfig(TARGET_URL);
+            final HttpMethod method = getRequiredConfig(TARGET_METHOD);
+            final Map<String, String> headers = config().get(TARGET_HEADERS);
+            final String body = config().get(TARGET_BODY);
+            final List<Map<String, Object>> assertions = getAssertions(this, ASSERTIONS);
+            final Duration timeout = getConfig(TIMEOUT);
+            final Duration backoffToPeriod = getConfig(BACKOFF_TO_PERIOD);
+            final HttpAssertionTarget target = getRequiredConfig(ASSERTION_TARGET);
+            final boolean trustAll = getRequiredConfig(TRUST_ALL);
+            if (!getChildren().isEmpty()) {
+                throw new RuntimeException(String.format("The entity [%s] cannot have child entities", getClass().getName()));
+            }
+            
+            doRequestAndCheckAssertions(ImmutableMap.of("timeout", timeout, "backoffToPeriod", backoffToPeriod), 
+                    assertions, target, method, url, headers, trustAll, body);
+            setUpAndRunState(true, Lifecycle.RUNNING);
 
         } catch (Throwable t) {
-            LOG.info("{} Url [{}] test failed", this, url);
-            sensors().set(Attributes.SERVICE_UP, false);
-            ServiceStateLogic.setExpectedState(this, Lifecycle.ON_FIRE);
+            if (url != null) {
+                LOG.info("{} Url [{}] test failed (rethrowing)", this, url);
+            } else {
+                LOG.info("{} Url test failed (no url; rethrowing)", this);
+            }
+            setUpAndRunState(false, Lifecycle.ON_FIRE);
             throw Exceptions.propagate(t);
         }
     }
 
     private void doRequestAndCheckAssertions(Map<String, Duration> flags, List<Map<String, Object>> assertions,
-                                             HttpAssertionTarget target, final String url) {
+                                             HttpAssertionTarget target, final HttpMethod method, final String url, final Map<String, String> headers, final boolean trustAll, final String body) {
         switch (target) {
             case body:
                 Supplier<String> getBody = new Supplier<String>() {
                     @Override
                     public String get() {
-                        return HttpTool.getContent(url);
-                    }
-                };
-                TestFrameworkAssertions.checkAssertions(flags, assertions, target.toString(), getBody);
-                break;
-            case status:
-                Supplier<Integer> getStatusCode = new Supplier<Integer>() {
-                    @Override
-                    public Integer get() {
                         try {
-                            return HttpTool.getHttpStatusCode(url);
+                            final HttpRequestBase httpMethod = createHttpMethod(method, url, headers, body);
+                            return HttpTool.execAndConsume(HttpTool.httpClientBuilder().uri(url).trustAll(trustAll).build(), httpMethod).getContentAsString();
                         } catch (Exception e) {
                             LOG.info("HTTP call to [{}] failed due to [{}]", url, e.getMessage());
                             throw Exceptions.propagate(e);
                         }
                     }
                 };
-                TestFrameworkAssertions.checkAssertions(flags, assertions, target.toString(), getStatusCode);
+                TestFrameworkAssertions.checkAssertionsEventually(new AssertionOptions(target.toString(), getBody)
+                        .flags(flags).assertions(assertions));
+                break;
+            case status:
+                Supplier<Integer> getStatusCode = new Supplier<Integer>() {
+                    @Override
+                    public Integer get() {
+                        try {
+                            final HttpRequestBase httpMethod = createHttpMethod(method, url, headers, body);
+                            final Maybe<HttpResponse> response = HttpTool.execAndConsume(HttpTool.httpClientBuilder().uri(url).trustAll(trustAll).build(), httpMethod).getResponse();
+                            if (response.isPresentAndNonNull()) {
+                                return response.get().getStatusLine().getStatusCode();
+                            } else {
+                                throw new Exception("HTTP call did not return any response");
+                            }
+                        } catch (Exception e) {
+                            LOG.info("HTTP call to [{}] failed due to [{}]", url, e.getMessage());
+                            throw Exceptions.propagate(e);
+                        }
+                    }
+                };
+                TestFrameworkAssertions.checkAssertionsEventually(new AssertionOptions(target.toString(), getStatusCode)
+                        .flags(flags).assertions(assertions));
                 break;
             default:
                 throw new RuntimeException("Unexpected assertion target (" + target + ")");
         }
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public void stop() {
-        ServiceStateLogic.setExpectedState(this, Lifecycle.STOPPED);
-        sensors().set(Attributes.SERVICE_UP, false);
+    private HttpRequestBase createHttpMethod(HttpMethod method, String url, Map<String, String> headers, String body) throws Exception {
+        return new HttpTool.HttpRequestBuilder<>(method.requestClass)
+                .uri(new URI(url))
+                .body(body)
+                .headers(headers)
+                .build();
     }
 
     /**
      * {@inheritDoc}
      */
+    @Override
+    public void stop() {
+        setUpAndRunState(false, Lifecycle.STOPPED);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public void restart() {
         final Collection<Location> locations = Lists.newArrayList(getLocations());
         stop();

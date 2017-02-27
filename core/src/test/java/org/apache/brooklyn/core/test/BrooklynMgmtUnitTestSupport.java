@@ -18,10 +18,12 @@
  */
 package org.apache.brooklyn.core.test;
 
+import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.internal.BrooklynProperties;
 import org.apache.brooklyn.core.mgmt.internal.ManagementContextInternal;
 import org.apache.brooklyn.core.test.entity.LocalManagementContextForTests;
+import org.apache.brooklyn.test.Asserts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.AfterMethod;
@@ -50,20 +52,32 @@ public class BrooklynMgmtUnitTestSupport {
         }
     }
 
-    @AfterMethod(alwaysRun=true)
+    @AfterMethod(alwaysRun=true, timeOut=Asserts.THIRTY_SECONDS_TIMEOUT_MS)
     public void tearDown() throws Exception {
         try {
-            if (mgmt != null) Entities.destroyAll(mgmt);
-        } catch (Throwable t) {
-            LOG.error("Caught exception in tearDown method", t);
-            // we should fail here, except almost always that masks a primary failure in the test itself,
-            // so it would be extremely unhelpful to do so. if we could check if test has not already failed,
-            // that would be ideal, but i'm not sure if that's possible with TestNG. ?
+            destroyManagementContextSafely(mgmt);
         } finally {
             mgmt = null;
         }
     }
 
+    protected void replaceManagementContext(ManagementContext newMgmt) {
+        destroyManagementContextSafely(mgmt);
+        mgmt = (ManagementContextInternal) newMgmt;
+    }
+    
+    protected void destroyManagementContextSafely(ManagementContext mgmt) {
+        try {
+            if (mgmt != null) Entities.destroyAll(mgmt);
+        } catch (Throwable t) {
+            LOG.error("Caught exception destroying management context "+mgmt, t);
+            // If failing during teardown...
+            // we should fail here, except almost always that masks a primary failure in the test itself,
+            // so it would be extremely unhelpful to do so. if we could check if test has not already failed,
+            // that would be ideal, but i'm not sure if that's possible with TestNG. ?
+        }
+    }
+    
     protected BrooklynProperties getBrooklynProperties() {
         return null;
     }

@@ -39,6 +39,7 @@ import org.apache.brooklyn.api.catalog.CatalogItem.CatalogItemType;
 import org.apache.brooklyn.api.entity.Application;
 import org.apache.brooklyn.api.entity.Entity;
 import org.apache.brooklyn.api.entity.EntitySpec;
+import org.apache.brooklyn.api.internal.AbstractBrooklynObjectSpec;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.mgmt.Task;
 import org.apache.brooklyn.api.mgmt.ha.HighAvailabilityMode;
@@ -641,8 +642,7 @@ public class Main extends AbstractMain {
                         // and additionally they might contain multiple items in which case
                         // the validation below won't work anyway (you need to go via a deployment plan)
                     } else {
-                        @SuppressWarnings({ "unchecked", "rawtypes" })
-                        Object spec = catalog.createSpec((CatalogItem)item);
+                        AbstractBrooklynObjectSpec<?, ?> spec = catalog.peekSpec(item);
                         if (spec instanceof EntitySpec) {
                             BrooklynTypes.getDefinedEntityType(((EntitySpec<?>)spec).getType());
                         }
@@ -753,7 +753,7 @@ public class Main extends AbstractMain {
             // Instantiate an app builder (wrapping app class in ApplicationBuilder, if necessary)
             if (ApplicationBuilder.class.isAssignableFrom(clazz)) {
                 Constructor<?> constructor = clazz.getConstructor();
-                return (ApplicationBuilder) constructor.newInstance();
+                return constructor.newInstance();
             } else if (StartableApplication.class.isAssignableFrom(clazz)) {
                 EntitySpec<? extends StartableApplication> appSpec;
                 if (tempclazz.isInterface())
@@ -768,7 +768,7 @@ public class Main extends AbstractMain {
                 // TODO grr; what to do about non-startable applications?
                 // without this we could return ApplicationBuilder rather than Object
                 Constructor<?> constructor = clazz.getConstructor();
-                return (AbstractApplication) constructor.newInstance();
+                return constructor.newInstance();
             } else if (AbstractEntity.class.isAssignableFrom(clazz)) {
                 // TODO Should we really accept any entity type, and just wrap it in an app? That's not documented!
                 return new ApplicationBuilder() {
@@ -824,6 +824,77 @@ public class Main extends AbstractMain {
                     .add("persistenceDir", persistenceDir)
                     .add("highAvailability", highAvailability)
                     .add("exitAndLeaveAppsRunningAfterStarting", exitAndLeaveAppsRunningAfterStarting);
+        }
+    }
+
+    @Command(name = "clean-orphaned-state", description = "Removes existing orphaned persisted state (e.g. locations, policies, enrichers and feeds)")
+    public static class CleanOrphanedStateCommand extends BrooklynCommandCollectingArgs {
+
+        @Option(name = { "--localBrooklynProperties" }, title = "local brooklyn.properties file",
+                description = "local brooklyn.properties file, specific to this launch (appending to and overriding global properties)")
+        public String localBrooklynProperties;
+
+        @Option(name = { "--persistenceDir" }, title = "persistence dir",
+                description = "The directory to read persisted state (or container name if using an object store)")
+        public String persistenceDir;
+
+        @Option(name = { "--persistenceLocation" }, title = "persistence location",
+                description = "The location spec for an object store to read persisted state")
+        public String persistenceLocation;
+
+        @Option(name = { "--destinationDir" }, required = true, title = "destination dir",
+                description = "The directory to copy persistence data to, with orphaned state removed")
+        public String destinationDir;
+
+        @Option(name = { "--destinationLocation" }, title = "persistence location",
+                description = "The location spec for an object store to copy data to")
+        public String destinationLocation;
+
+        @Override
+        public Void call() throws Exception {
+            checkNotNull(destinationDir, "destinationDir");
+
+            BrooklynLauncher launcher;
+            failIfArguments();
+
+            try {
+                log.info("Retrieving and copying persisted state to " + destinationDir + " with orphaned state deleted");
+
+                PersistMode persistMode = PersistMode.REBIND;
+                HighAvailabilityMode highAvailabilityMode = HighAvailabilityMode.DISABLED;
+
+                launcher = BrooklynLauncher.newInstance()
+                        .localBrooklynPropertiesFile(localBrooklynProperties)
+                        .brooklynProperties(OsgiManager.USE_OSGI, false)
+                        .persistMode(persistMode)
+                        .persistenceDir(persistenceDir)
+                        .persistenceLocation(persistenceLocation)
+                        .highAvailabilityMode(highAvailabilityMode);
+
+            } catch (FatalConfigurationRuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new FatalConfigurationRuntimeException("Fatal error configuring Brooklyn launch: "+e.getMessage(), e);
+            }
+
+            try {
+                launcher.cleanOrphanedState(destinationDir, destinationLocation);
+            } catch (FatalRuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                Exceptions.propagateIfFatal(e);
+                log.error("Error retrieving persisted state: "+Exceptions.collapseText(e), e);
+                Exceptions.propagate(e);
+            } finally {
+                try {
+                    launcher.terminate();
+                } catch (Exception e2) {
+                    log.warn("Subsequent error during termination: "+e2);
+                    log.debug("Details of subsequent error during termination: "+e2, e2);
+                }
+            }
+
+            return null;
         }
     }
 
@@ -931,6 +1002,7 @@ public class Main extends AbstractMain {
                         HelpCommand.class,
                         cliInfoCommand(),
                         GeneratePasswordCommand.class,
+                        CleanOrphanedStateCommand.class,
                         CopyStateCommand.class,
                         ListAllCommand.class,
                         cliLaunchCommand()

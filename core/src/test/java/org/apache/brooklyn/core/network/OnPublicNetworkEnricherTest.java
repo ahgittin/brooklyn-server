@@ -97,7 +97,7 @@ public class OnPublicNetworkEnricherTest extends BrooklynAppUnitTestSupport {
     public Object[][] provideInvalidVariants() {
         AttributeSensor<HostAndPort> hostAndPortSensor = Sensors.newSensor(HostAndPort.class, "test.hostAndPort");
         List<Object[]> result = Lists.newArrayList();
-        result.add(new Object[] {Attributes.MAIN_URI, (URI)null});
+        result.add(new Object[] {Attributes.MAIN_URI, null});
         result.add(new Object[] {TestEntity.NAME, "127.0.0.1:1234/my/path"}); // must have scheme
         result.add(new Object[] {Attributes.HTTP_PORT, null});
         result.add(new Object[] {Attributes.HTTP_PORT, 1234567});
@@ -105,7 +105,7 @@ public class OnPublicNetworkEnricherTest extends BrooklynAppUnitTestSupport {
         result.add(new Object[] {TestEntity.NAME, "1234567"});
         result.add(new Object[] {TestEntity.NAME, "thisHasNoPort"});
         result.add(new Object[] {TestEntity.NAME, "portIsTooBig:1234567"});
-        result.add(new Object[] {hostAndPortSensor, (HostAndPort)null});
+        result.add(new Object[] {hostAndPortSensor, null});
         return result.toArray(new Object[result.size()][]);
     }
 
@@ -303,6 +303,51 @@ public class OnPublicNetworkEnricherTest extends BrooklynAppUnitTestSupport {
     }
 
     @Test
+    public <T> void testTransformsToAddressInSensor() throws Exception {
+        AttributeSensor<String> stringUri = Sensors.newStringSensor("string.uri");
+
+        entity.sensors().set(Attributes.ADDRESS, "1.1.1.1");
+        entity.sensors().set(stringUri, "http://127.0.0.1:1234/my/path");
+        entity.addLocations(ImmutableList.of(machine));
+
+        entity.enrichers().add(EnricherSpec.create(OnPublicNetworkEnricher.class)
+                .configure(OnPublicNetworkEnricher.ADDRESS_SENSOR, Attributes.ADDRESS));
+
+        assertAttributeEqualsEventually("string.uri.mapped.public", "http://1.1.1.1:1234/my/path");
+    }
+
+    @Test
+    public <T> void testTransformsToAddressInSensorIsNoopIfSensorNull() throws Exception {
+        AttributeSensor<String> stringUri = Sensors.newStringSensor("string.uri");
+
+        entity.sensors().set(Attributes.ADDRESS, null);
+        entity.sensors().set(stringUri, "http://127.0.0.1:1234/my/path");
+        entity.addLocations(ImmutableList.of(machine));
+
+        entity.enrichers().add(EnricherSpec.create(OnPublicNetworkEnricher.class)
+                .configure(OnPublicNetworkEnricher.ADDRESS_SENSOR, Attributes.ADDRESS));
+
+        assertAttributeEqualsContinually("string.uri.mapped.public", null, Duration.millis(250));
+    }
+
+    @Test(groups="Broken")
+    public <T> void testTransformsToAddressInSensorWithDefaultPorts() throws Exception {
+        AttributeSensor<String> stringUriWithHttpNoPort = Sensors.newStringSensor("string.uriWithHttpNoPort");
+        AttributeSensor<String> stringUriWithHttpsNoPort = Sensors.newStringSensor("string.uriWithHttpsNoPort");
+
+        entity.sensors().set(Attributes.ADDRESS, "1.1.1.1");
+        entity.sensors().set(stringUriWithHttpNoPort, "http://127.0.0.1/my/path");
+        entity.sensors().set(stringUriWithHttpsNoPort, "https://127.0.0.1/my/path");
+        entity.addLocations(ImmutableList.of(machine));
+        
+        entity.enrichers().add(EnricherSpec.create(OnPublicNetworkEnricher.class)
+                .configure(OnPublicNetworkEnricher.ADDRESS_SENSOR, Attributes.ADDRESS));
+
+        assertAttributeEqualsEventually("string.uriWithHttpNoPort.mapped.public", "http://1.1.1.1/my/path");
+        assertAttributeEqualsEventually("string.uriWithHttspNoPort.mapped.public", "https://1.1.1.1/my/path");
+    }
+    
+    @Test
     public <T> void testDoesNotDoRegexMatchingWhenSensorsSpecified() throws Exception {
         AttributeSensor<String> sensor = Sensors.newStringSensor("mysensor");
         AttributeSensor<Integer> intPort = Sensors.newIntegerSensor("int.port");
@@ -331,7 +376,7 @@ public class OnPublicNetworkEnricherTest extends BrooklynAppUnitTestSupport {
         
         // Ugly casting in java, but easy to get passed this when constructed from YAML
         entity.enrichers().add(EnricherSpec.create(OnPublicNetworkEnricher.class)
-                .configure(OnPublicNetworkEnricher.SENSORS, ((List<AttributeSensor<?>>)(List)ImmutableList.of("mysensor"))));
+                .configure(OnPublicNetworkEnricher.SENSORS, ((List)ImmutableList.of("mysensor"))));
 
         assertAttributeEqualsEventually("mysensor.mapped.public", "mypublichost:5678");
     }

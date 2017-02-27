@@ -21,17 +21,12 @@ package org.apache.brooklyn.entity.software.base;
 import java.util.Collection;
 import java.util.Map;
 
-import com.google.common.annotations.Beta;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.reflect.TypeToken;
-
 import org.apache.brooklyn.api.entity.Entity;
 import org.apache.brooklyn.api.location.MachineProvisioningLocation;
 import org.apache.brooklyn.api.sensor.AttributeSensor;
-import org.apache.brooklyn.config.ConfigInheritance;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.annotation.Effector;
+import org.apache.brooklyn.core.config.BasicConfigInheritance;
 import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.config.MapConfigKey;
 import org.apache.brooklyn.core.entity.Attributes;
@@ -43,6 +38,11 @@ import org.apache.brooklyn.core.sensor.AttributeSensorAndConfigKey;
 import org.apache.brooklyn.core.sensor.Sensors;
 import org.apache.brooklyn.util.core.flags.SetFromFlag;
 import org.apache.brooklyn.util.time.Duration;
+
+import com.google.common.annotations.Beta;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.reflect.TypeToken;
 
 public interface SoftwareProcess extends Entity, Startable {
 
@@ -72,6 +72,9 @@ public interface SoftwareProcess extends Entity, Startable {
 
     @SetFromFlag("startLatch")
     ConfigKey<Boolean> START_LATCH = BrooklynConfigKeys.START_LATCH;
+
+    @SetFromFlag("stopLatch")
+    ConfigKey<Boolean> STOP_LATCH = BrooklynConfigKeys.STOP_LATCH;
 
     @SetFromFlag("setupLatch")
     ConfigKey<Boolean> SETUP_LATCH = BrooklynConfigKeys.SETUP_LATCH;
@@ -147,6 +150,9 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("runDir")
     AttributeSensorAndConfigKey<String,String> RUN_DIR = BrooklynConfigKeys.RUN_DIR;
 
+    ConfigKey<Boolean> ADD_OPEN_INBOUND_PORTS_EFFECTOR = ConfigKeys.newBooleanConfigKey("effector.add.openInboundPorts",
+            "Flag which adds effector for opening ports through Cloud security groups", false);
+
     ConfigKey<Boolean> OPEN_IPTABLES = ConfigKeys.newBooleanConfigKey("openIptables",
             "Whether to open the INBOUND_PORTS via iptables rules; " +
             "if true then ssh in to run iptables commands, as part of machine provisioning", false);
@@ -163,6 +169,13 @@ public interface SoftwareProcess extends Entity, Startable {
             "modify the machine so that a tty is not subsequently required.",
             false);
 
+    @SetFromFlag("substitutions")
+    MapConfigKey<Object> TEMPLATE_SUBSTITUTIONS = new MapConfigKey.Builder<Object>(Object.class, "template.substitutions")
+            .description("Map of values to be substituted for the keys in any templated files used by the entity")
+            .defaultValue(ImmutableMap.<String,Object>of())
+            .typeInheritance(BasicConfigInheritance.DEEP_MERGE)
+            .build();
+
     /**
      * Files to be copied to the server before pre-install.
      * <p>
@@ -175,7 +188,8 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("preInstallFiles")
     MapConfigKey<String> PRE_INSTALL_FILES = new MapConfigKey.Builder<String>(String.class, "files.preinstall")
             .description("Mapping of files, to be copied before install, to destination name relative to installDir") 
-            .typeInheritance(ConfigInheritance.DEEP_MERGE)
+            .typeInheritance(BasicConfigInheritance.DEEP_MERGE)
+            .runtimeInheritance(BasicConfigInheritance.NOT_REINHERITED_ELSE_DEEP_MERGE)
             .build();
 
     /**
@@ -187,7 +201,8 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("preInstallTemplates")
     MapConfigKey<String> PRE_INSTALL_TEMPLATES = new MapConfigKey.Builder<String>(String.class, "templates.preinstall")
             .description("Mapping of templates, to be filled in and copied before pre-install, to destination name relative to installDir") 
-            .typeInheritance(ConfigInheritance.DEEP_MERGE)
+            .typeInheritance(BasicConfigInheritance.DEEP_MERGE)
+            .runtimeInheritance(BasicConfigInheritance.NOT_REINHERITED_ELSE_DEEP_MERGE)
             .build();
 
     /**
@@ -202,7 +217,8 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("installFiles")
     MapConfigKey<String> INSTALL_FILES = new MapConfigKey.Builder<String>(String.class, "files.install")
             .description("Mapping of files, to be copied before install, to destination name relative to installDir") 
-            .typeInheritance(ConfigInheritance.DEEP_MERGE)
+            .typeInheritance(BasicConfigInheritance.DEEP_MERGE)
+            .runtimeInheritance(BasicConfigInheritance.NOT_REINHERITED_ELSE_DEEP_MERGE)
             .build();
 
     /**
@@ -214,7 +230,8 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("installTemplates")
     MapConfigKey<String> INSTALL_TEMPLATES = new MapConfigKey.Builder<String>(String.class, "templates.install")
             .description("Mapping of templates, to be filled in and copied before install, to destination name relative to installDir") 
-            .typeInheritance(ConfigInheritance.DEEP_MERGE)
+            .typeInheritance(BasicConfigInheritance.DEEP_MERGE)
+            .runtimeInheritance(BasicConfigInheritance.NOT_REINHERITED_ELSE_DEEP_MERGE)
             .build();
 
     /**
@@ -229,7 +246,8 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("runtimeFiles")
     MapConfigKey<String> RUNTIME_FILES = new MapConfigKey.Builder<String>(String.class, "files.runtime")
             .description("Mapping of files, to be copied before customisation, to destination name relative to runDir") 
-            .typeInheritance(ConfigInheritance.DEEP_MERGE)
+            .typeInheritance(BasicConfigInheritance.DEEP_MERGE)
+            .runtimeInheritance(BasicConfigInheritance.NOT_REINHERITED_ELSE_DEEP_MERGE)
             .build();
 
     /**
@@ -241,15 +259,12 @@ public interface SoftwareProcess extends Entity, Startable {
     @SetFromFlag("runtimeTemplates")
     MapConfigKey<String> RUNTIME_TEMPLATES = new MapConfigKey.Builder<String>(String.class, "templates.runtime")
             .description("Mapping of templates, to be filled in and copied before customisation, to destination name relative to runDir") 
-            .typeInheritance(ConfigInheritance.DEEP_MERGE)
+            .typeInheritance(BasicConfigInheritance.DEEP_MERGE)
+            .runtimeInheritance(BasicConfigInheritance.NOT_REINHERITED_ELSE_DEEP_MERGE)
             .build();
 
     @SetFromFlag("provisioningProperties")
-    MapConfigKey<Object> PROVISIONING_PROPERTIES = new MapConfigKey.Builder<Object>(Object.class, "provisioning.properties")
-            .description("Custom properties to be passed in when provisioning a new machine")
-            .defaultValue(ImmutableMap.<String, Object>of())
-            .typeInheritance(ConfigInheritance.DEEP_MERGE)
-            .build();
+    MapConfigKey<Object> PROVISIONING_PROPERTIES = BrooklynConfigKeys.PROVISIONING_PROPERTIES;
 
     @SetFromFlag("maxRebindSensorsDelay")
     ConfigKey<Duration> MAXIMUM_REBIND_SENSOR_CONNECT_DELAY = ConfigKeys.newConfigKey(Duration.class,
@@ -260,6 +275,12 @@ public interface SoftwareProcess extends Entity, Startable {
                     "several others. Set to null or to 0 to disable any delay.",
             Duration.TEN_SECONDS);
 
+    ConfigKey<Duration> SERVICE_PROCESS_IS_RUNNING_POLL_PERIOD = ConfigKeys.newConfigKey(Duration.class,
+            "softwareProcess.serviceProcessIsRunningPollPeriod",
+            "The period for polling for whether the process is running; applies only if the entity "
+                    + "wires up the connectServiceUpIsRunning.",
+            Duration.FIVE_SECONDS);
+    
     /**
      * Sets the object that manages the sequence of calls of the entity's driver.
      */

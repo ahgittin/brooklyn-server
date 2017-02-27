@@ -37,6 +37,7 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
 import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Entity;
 import org.apache.brooklyn.api.mgmt.rebind.mementos.BrooklynMementoPersister;
 import org.apache.brooklyn.api.policy.Policy;
 import org.apache.brooklyn.api.sensor.Enricher;
@@ -46,6 +47,7 @@ import org.apache.brooklyn.core.BrooklynFeatureEnablement;
 import org.apache.brooklyn.core.catalog.internal.CatalogUtils;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.entity.StartableApplication;
+import org.apache.brooklyn.core.mgmt.osgi.OsgiStandaloneTest;
 import org.apache.brooklyn.core.mgmt.persist.BrooklynMementoPersisterToObjectStore;
 import org.apache.brooklyn.core.mgmt.persist.PersistenceObjectStore;
 import org.apache.brooklyn.core.mgmt.persist.PersistenceObjectStore.StoreObjectAccessor;
@@ -54,8 +56,13 @@ import org.apache.brooklyn.core.test.policy.TestEnricher;
 import org.apache.brooklyn.core.test.policy.TestPolicy;
 import org.apache.brooklyn.entity.stock.BasicEntity;
 import org.apache.brooklyn.test.Asserts;
+import org.apache.brooklyn.test.support.TestResourceUnavailableException;
 import org.apache.brooklyn.util.exceptions.Exceptions;
+import org.apache.brooklyn.util.osgi.OsgiTestResources;
 import org.apache.brooklyn.util.text.Strings;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -75,7 +82,13 @@ public class CatalogYamlRebindTest extends AbstractYamlRebindTest {
     //   - entities cannot be instantiated because class no longer on classpath (e.g. was OSGi)
     //   - config/attribute cannot be instantiated (e.g. because class no longer on classpath)
     //   - entity file corrupt
-    
+
+    private static final String OSGI_BUNDLE_SYMBOLID_NAME_FULL = OsgiStandaloneTest.BROOKLYN_TEST_OSGI_ENTITIES_SYMBOLIC_NAME_FULL;
+    private static final String OSGI_BUNDLE_URL = OsgiStandaloneTest.BROOKLYN_TEST_OSGI_ENTITIES_URL;
+    private static final String OSGI_SIMPLE_ENTITY_TYPE = OsgiTestResources.BROOKLYN_TEST_OSGI_ENTITIES_SIMPLE_ENTITY;
+    private static final String OSGI_SIMPLE_POLICY_TYPE = OsgiTestResources.BROOKLYN_TEST_OSGI_ENTITIES_SIMPLE_POLICY;
+    private static final String OSGI_SIMPLE_EFFECTOR_TYPE = OsgiTestResources.BROOKLYN_TEST_OSGI_ENTITIES_SIMPLE_EFFECTOR;
+
     enum RebindWithCatalogTestMode {
         NO_OP,
         STRIP_DEPRECATION_AND_ENABLEMENT_FROM_CATALOG_ITEM,
@@ -85,63 +98,141 @@ public class CatalogYamlRebindTest extends AbstractYamlRebindTest {
         REPLACE_CATALOG_WITH_NEWER_VERSION;
     }
     
-    @Test
-    public void testRebindWithCatalogAndApp() throws Exception {
-        runRebindWithCatalogAndApp(RebindWithCatalogTestMode.NO_OP);
+    enum OsgiMode {
+        NONE,
+        LIBRARY,
+        PREFIX
     }
     
-    @Test
-    public void testRebindWithCatalogDeprecatedAndAppExisting() throws Exception {
-        runRebindWithCatalogAndApp(RebindWithCatalogTestMode.DEPRECATE_CATALOG);
+    private Boolean defaultEnablementOfFeatureAutoFixatalogRefOnRebind;
+    
+    @BeforeMethod(alwaysRun=true)
+    @Override
+    public void setUp() throws Exception {
+        defaultEnablementOfFeatureAutoFixatalogRefOnRebind = BrooklynFeatureEnablement.isEnabled(BrooklynFeatureEnablement.FEATURE_AUTO_FIX_CATALOG_REF_ON_REBIND);
+        super.setUp();
     }
     
-    @Test
-    public void testRebindWithCatalogDisabledAndAppExisting() throws Exception {
-        runRebindWithCatalogAndApp(RebindWithCatalogTestMode.DISABLE_CATALOG);
+    @AfterMethod(alwaysRun=true)
+    @Override
+    public void tearDown() throws Exception {
+        if (defaultEnablementOfFeatureAutoFixatalogRefOnRebind != null) {
+            BrooklynFeatureEnablement.setEnablement(BrooklynFeatureEnablement.FEATURE_AUTO_FIX_CATALOG_REF_ON_REBIND, defaultEnablementOfFeatureAutoFixatalogRefOnRebind);
+        }
+        super.tearDown();
     }
     
-    // See https://issues.apache.org/jira/browse/BROOKLYN-149.
-    // Deletes the catalog item before rebind, but the referenced types are still on the 
-    // default classpath.
-    // Will fallback to loading from classpath.
-    @Test
-    public void testRebindWithCatalogDeletedAndAppExisting() throws Exception {
-        runRebindWithCatalogAndApp(RebindWithCatalogTestMode.DELETE_CATALOG);
-    }
-    
-    // Upgrades the catalog item before rebind, deleting the old version.
-    // Will automatically upgrade.
-    @Test
-    public void testRebindWithCatalogUpgradedWithOldDeletedAndAppExisting() throws Exception {
-        BrooklynFeatureEnablement.enable(BrooklynFeatureEnablement.FEATURE_AUTO_FIX_CATALOG_REF_ON_REBIND);
-        runRebindWithCatalogAndApp(RebindWithCatalogTestMode.REPLACE_CATALOG_WITH_NEWER_VERSION);
-    }
-    
-    /**
-     * Old persisted state for catalog items may not have a "deprecated" or "disabled"
-     * value. Need to check that their absence will default to false.
-     */
-    @Test
-    public void testRebindWithCatalogPropertiesForDeprecationAndEnablementAbsent() throws Exception {
-        runRebindWithCatalogAndApp(RebindWithCatalogTestMode.STRIP_DEPRECATION_AND_ENABLEMENT_FROM_CATALOG_ITEM);
+    @Override
+    protected boolean useOsgi() {
+        return true;
     }
 
-    @SuppressWarnings({ "unused", "deprecation" })
-    protected void runRebindWithCatalogAndApp(RebindWithCatalogTestMode mode) throws Exception {
+    @DataProvider
+    public Object[][] dataProvider() {
+        return new Object[][] {
+            {RebindWithCatalogTestMode.NO_OP, OsgiMode.NONE},
+            {RebindWithCatalogTestMode.NO_OP, OsgiMode.LIBRARY},
+            {RebindWithCatalogTestMode.NO_OP, OsgiMode.PREFIX},
+            
+            {RebindWithCatalogTestMode.STRIP_DEPRECATION_AND_ENABLEMENT_FROM_CATALOG_ITEM, OsgiMode.NONE},
+            {RebindWithCatalogTestMode.STRIP_DEPRECATION_AND_ENABLEMENT_FROM_CATALOG_ITEM, OsgiMode.LIBRARY},
+            {RebindWithCatalogTestMode.STRIP_DEPRECATION_AND_ENABLEMENT_FROM_CATALOG_ITEM, OsgiMode.PREFIX},
+            
+            {RebindWithCatalogTestMode.DEPRECATE_CATALOG, OsgiMode.NONE},
+            {RebindWithCatalogTestMode.DEPRECATE_CATALOG, OsgiMode.LIBRARY},
+            {RebindWithCatalogTestMode.DEPRECATE_CATALOG, OsgiMode.PREFIX},
+            
+            {RebindWithCatalogTestMode.DISABLE_CATALOG, OsgiMode.NONE},
+            {RebindWithCatalogTestMode.DISABLE_CATALOG, OsgiMode.LIBRARY},
+            {RebindWithCatalogTestMode.DISABLE_CATALOG, OsgiMode.PREFIX},
+            
+            // For DELETE_CATALOG, see https://issues.apache.org/jira/browse/BROOKLYN-149.
+            // Deletes the catalog item before rebind, but the referenced types are still on the 
+            // default classpath. Will fallback to loading from classpath.
+            //
+            // Does not work for OSGi, because our bundle will no longer be available.
+            {RebindWithCatalogTestMode.DELETE_CATALOG, OsgiMode.NONE},
+            
+            // Upgrades the catalog item before rebind, deleting the old version.
+            // Will automatically upgrade. Test will enable "FEATURE_AUTO_FIX_CATALOG_REF_ON_REBIND"
+            {RebindWithCatalogTestMode.REPLACE_CATALOG_WITH_NEWER_VERSION, OsgiMode.NONE},
+            {RebindWithCatalogTestMode.REPLACE_CATALOG_WITH_NEWER_VERSION, OsgiMode.LIBRARY},
+            {RebindWithCatalogTestMode.REPLACE_CATALOG_WITH_NEWER_VERSION, OsgiMode.PREFIX},
+        };
+    }
+
+    @Test(dataProvider = "dataProvider")
+    @SuppressWarnings({ "deprecation", "unused" })
+    public void testRebindWithCatalogAndApp(RebindWithCatalogTestMode mode, OsgiMode osgiMode) throws Exception {
+        if (osgiMode != OsgiMode.NONE) {
+            TestResourceUnavailableException.throwIfResourceUnavailable(getClass(), OsgiStandaloneTest.BROOKLYN_TEST_OSGI_ENTITIES_PATH);
+        }
+
+        if (mode == RebindWithCatalogTestMode.REPLACE_CATALOG_WITH_NEWER_VERSION) {
+            BrooklynFeatureEnablement.enable(BrooklynFeatureEnablement.FEATURE_AUTO_FIX_CATALOG_REF_ON_REBIND);
+        }
+
         String appSymbolicName = "my.catalog.app.id.load";
         String appVersion = "0.1.0";
-        String appCatalogFormat = Joiner.on("\n").join(
-                "brooklyn.catalog:",
-                "  id: " + appSymbolicName,
-                "  version: %s",
-                "  itemType: entity",
-                "  item:",
-                "    type: "+ BasicEntity.class.getName(),
-                "    brooklyn.enrichers:",
-                "    - type: "+TestEnricher.class.getName(),
-                "    brooklyn.policies:",
-                "    - type: "+TestPolicy.class.getName());
         
+        String appCatalogFormat;
+        if (osgiMode == OsgiMode.LIBRARY) {
+            appCatalogFormat = Joiner.on("\n").join(
+                    "brooklyn.catalog:",
+                    "  id: " + appSymbolicName,
+                    "  version: %s",
+                    "  itemType: entity",
+                    "  libraries:",
+                    "  - url: " + OSGI_BUNDLE_URL,
+                    "  item:",
+                    "    type: " + OSGI_SIMPLE_ENTITY_TYPE,
+                    "    brooklyn.enrichers:",
+                    "    - type: " + TestEnricher.class.getName(),
+                    "    brooklyn.policies:",
+                    "    - type: " + OSGI_SIMPLE_POLICY_TYPE,
+                    "    brooklyn.initializers:",
+                    "    - type: " + OSGI_SIMPLE_EFFECTOR_TYPE);
+        } else if (osgiMode == OsgiMode.PREFIX) {
+            // This catalog item is just meant to load the bundle in the OSGi environment. Its content is irrelevant.
+            String libraryItem = Joiner.on("\n").join(
+                    "brooklyn.catalog:",
+                    "  id: dummy",
+                    "  version: %s",
+                    "  itemType: entity",
+                    "  libraries:",
+                    "  - url: " + OSGI_BUNDLE_URL,
+                    "  item: " + BasicEntity.class.getName());
+            addCatalogItems(String.format(libraryItem, appVersion));
+
+            // Use bundle prefixes here, pointing to the bundle already loaded above
+            appCatalogFormat = Joiner.on("\n").join(
+                    "brooklyn.catalog:",
+                    "  id: " + appSymbolicName,
+                    "  version: %s",
+                    "  itemType: entity",
+                    "  item:",
+                    "    type: " + OSGI_BUNDLE_SYMBOLID_NAME_FULL + ":" + OSGI_SIMPLE_ENTITY_TYPE,
+                    "    brooklyn.enrichers:",
+                    "    - type: " + TestEnricher.class.getName(),
+                    "    brooklyn.policies:",
+                    "    - type: " + OSGI_BUNDLE_SYMBOLID_NAME_FULL + ":" + OSGI_SIMPLE_POLICY_TYPE,
+                    "    brooklyn.initializers:",
+                    "    - type: " + OSGI_BUNDLE_SYMBOLID_NAME_FULL + ":" + OSGI_SIMPLE_EFFECTOR_TYPE);
+        } else {
+            appCatalogFormat = Joiner.on("\n").join(
+                    "brooklyn.catalog:",
+                    "  id: " + appSymbolicName,
+                    "  version: %s",
+                    "  itemType: entity",
+                    "  item:",
+                    "    type: "+ BasicEntity.class.getName(),
+                    "    brooklyn.enrichers:",
+                    "    - type: "+TestEnricher.class.getName(),
+                    "    brooklyn.policies:",
+                    "    - type: "+TestPolicy.class.getName());
+        }
+
+
         String locSymbolicName = "my.catalog.loc.id.load";
         String locVersion = "1.0.0";
         String locCatalogFormat = Joiner.on("\n").join(
@@ -164,9 +255,9 @@ public class CatalogYamlRebindTest extends AbstractYamlRebindTest {
                 "services: \n" +
                 "- type: "+CatalogUtils.getVersionedId(appSymbolicName, appVersion);
         origApp = (StartableApplication) createAndStartApplication(yaml);
-        BasicEntity origEntity = (BasicEntity) Iterables.getOnlyElement(origApp.getChildren());
-        TestPolicy origPolicy = (TestPolicy) Iterables.getOnlyElement(origEntity.policies());
-        TestEnricher origEnricher = (TestEnricher) Iterables.tryFind(origEntity.enrichers(), Predicates.instanceOf(TestEnricher.class)).get();
+        Entity origEntity = Iterables.getOnlyElement(origApp.getChildren());
+        Policy origPolicy = Iterables.getOnlyElement(origEntity.policies());
+        Enricher origEnricher = Iterables.tryFind(origEntity.enrichers(), Predicates.instanceOf(TestEnricher.class)).get();
         assertEquals(origEntity.getCatalogItemId(), appSymbolicName+":"+appVersion);
 
         // Depending on test-mode, delete the catalog item, and then rebind
@@ -226,7 +317,7 @@ public class CatalogYamlRebindTest extends AbstractYamlRebindTest {
         }
 
         // Ensure app is still there, and that it is usable - e.g. "stop" effector functions as expected
-        BasicEntity newEntity = (BasicEntity) Iterables.getOnlyElement(newApp.getChildren());
+        Entity newEntity = Iterables.getOnlyElement(newApp.getChildren());
         Policy newPolicy = Iterables.getOnlyElement(newEntity.policies());
         Enricher newEnricher = Iterables.tryFind(newEntity.enrichers(), Predicates.instanceOf(TestEnricher.class)).get();
         assertEquals(newEntity.getCatalogItemId(), appSymbolicName+":"+appVersion);
@@ -279,12 +370,12 @@ public class CatalogYamlRebindTest extends AbstractYamlRebindTest {
 
         if (itemDeployable) {
             StartableApplication app2 = (StartableApplication) createAndStartApplication(yaml2);
-            BasicEntity entity2 = (BasicEntity) Iterables.getOnlyElement(app2.getChildren());
+            Entity entity2 = Iterables.getOnlyElement(app2.getChildren());
             assertEquals(entity2.getCatalogItemId(), appSymbolicName+":"+appVersion);
         } else {
             try {
                 StartableApplication app2 = (StartableApplication) createAndStartApplication(yaml2);
-                Asserts.shouldHaveFailedPreviously();
+                Asserts.shouldHaveFailedPreviously("app2="+app2);
             } catch (Exception e) {
                 // only these two modes are allowed; may have different assertions (but don't yet)
                 if (mode == RebindWithCatalogTestMode.DELETE_CATALOG) {

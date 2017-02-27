@@ -20,7 +20,7 @@
   <parent>
     <groupId>org.apache.brooklyn</groupId>
     <artifactId>brooklyn-karaf</artifactId>
-    <version>0.10.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
+    <version>0.11.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -46,6 +46,7 @@
             <Fragment-Host>org.ops4j.pax.web.pax-web-jetty</Fragment-Host>
             <Import-Package>
                 org.eclipse.jetty.jaas,
+                org.eclipse.jetty.security,
                 org.apache.brooklyn.rest.security.jaas,
                 *
             </Import-Package>

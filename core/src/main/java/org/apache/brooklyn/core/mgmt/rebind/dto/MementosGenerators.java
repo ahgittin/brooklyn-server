@@ -56,24 +56,33 @@ import org.apache.brooklyn.core.entity.EntityInternal;
 import org.apache.brooklyn.core.feed.AbstractFeed;
 import org.apache.brooklyn.core.location.internal.LocationInternal;
 import org.apache.brooklyn.core.mgmt.persist.BrooklynPersistenceUtils;
+import org.apache.brooklyn.core.mgmt.persist.OsgiClassPrefixer;
 import org.apache.brooklyn.core.mgmt.rebind.AbstractBrooklynObjectRebindSupport;
 import org.apache.brooklyn.core.mgmt.rebind.TreeUtils;
 import org.apache.brooklyn.core.objs.BrooklynTypes;
 import org.apache.brooklyn.core.policy.AbstractPolicy;
 import org.apache.brooklyn.util.collections.MutableMap;
+import org.apache.brooklyn.util.collections.MutableSet;
 import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.core.flags.FlagUtils;
+import org.apache.brooklyn.util.text.Strings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.Beta;
 import com.google.common.base.Function;
+import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Sets;
 
 public class MementosGenerators {
 
     private MementosGenerators() {}
+
+    private static final Logger log = LoggerFactory.getLogger(MementosGenerators.class);
     
     /** @deprecated since 0.7.0 use {@link #newBasicMemento(BrooklynObject)} */
+    @Deprecated
     public static Memento newMemento(BrooklynObject instance) {
         return newBasicMemento(instance);
     }
@@ -172,14 +181,16 @@ public class MementosGenerators {
         
         builder.isTopLevelApp = (entity instanceof Application && entity.getParent() == null);
 
-        Map<ConfigKey<?>, Object> localConfig = entity.getConfigMap().getLocalConfig();
-        for (Map.Entry<ConfigKey<?>, Object> entry : localConfig.entrySet()) {
+        builder.configKeys.addAll(entity.getEntityType().getConfigKeys());
+        
+        Map<ConfigKey<?>, ?> localConfig = entity.config().getAllLocalRaw();
+        for (Map.Entry<ConfigKey<?>, ?> entry : localConfig.entrySet()) {
             ConfigKey<?> key = checkNotNull(entry.getKey(), localConfig);
-            Object value = configValueToPersistable(entry.getValue());
+            Object value = configValueToPersistable(entry.getValue(), entityRaw, key.getName());
             builder.config.put(key, value); 
         }
         
-        Map<String, Object> localConfigUnmatched = MutableMap.copyOf(entity.getConfigMap().getLocalConfigBag().getAllConfig());
+        Map<String, Object> localConfigUnmatched = MutableMap.copyOf(entity.config().getLocalBag().getAllConfig());
         for (ConfigKey<?> key : localConfig.keySet()) {
             localConfigUnmatched.remove(key.getName());
         }
@@ -196,7 +207,7 @@ public class MementosGenerators {
             AttributeSensor<?> key = checkNotNull(entry.getKey(), allAttributes);
             if (key.getPersistenceMode() != SensorPersistenceMode.NONE) {
                 Object value = entry.getValue();
-                builder.attributes.put((AttributeSensor<?>)key, value);
+                builder.attributes.put(key, value);
             }
         }
         
@@ -323,10 +334,10 @@ public class MementosGenerators {
         // current code will lose the ConfigKey type on rebind for anything not defined on class.
         // Whereas entities support that.
         // TODO Do we need the "nonPersistableFlagNames" that locations use?
-        Map<ConfigKey<?>, Object> config = ((AbstractPolicy)policy).getConfigMap().getAllConfig();
+        Map<ConfigKey<?>, Object> config = ((AbstractPolicy)policy).config().getInternalConfigMap().getAllConfigLocalRaw();
         for (Map.Entry<ConfigKey<?>, Object> entry : config.entrySet()) {
             ConfigKey<?> key = checkNotNull(entry.getKey(), "config=%s", config);
-            Object value = configValueToPersistable(entry.getValue());
+            Object value = configValueToPersistable(entry.getValue(), policy, key.getName());
             builder.config.put(key.getName(), value); 
         }
         
@@ -366,10 +377,10 @@ public class MementosGenerators {
         // current code will lose the ConfigKey type on rebind for anything not defined on class.
         // Whereas entities support that.
         // TODO Do we need the "nonPersistableFlagNames" that locations use?
-        Map<ConfigKey<?>, Object> config = ((AbstractEnricher)enricher).getConfigMap().getAllConfig();
+        Map<ConfigKey<?>, Object> config = ((AbstractEnricher)enricher).config().getInternalConfigMap().getAllConfigLocalRaw();
         for (Map.Entry<ConfigKey<?>, Object> entry : config.entrySet()) {
             ConfigKey<?> key = checkNotNull(entry.getKey(), "config=%s", config);
-            Object value = configValueToPersistable(entry.getValue());
+            Object value = configValueToPersistable(entry.getValue(), enricher, key.getName());
             builder.config.put(key.getName(), value); 
         }
         
@@ -396,10 +407,10 @@ public class MementosGenerators {
         // current code will lose the ConfigKey type on rebind for anything not defined on class.
         // Whereas entities support that.
         // TODO Do we need the "nonPersistableFlagNames" that locations use?
-        Map<ConfigKey<?>, Object> config = ((AbstractFeed)feed).getConfigMap().getAllConfig();
+        Map<ConfigKey<?>, Object> config = ((AbstractFeed)feed).config().getInternalConfigMap().getAllConfigLocalRaw();
         for (Map.Entry<ConfigKey<?>, Object> entry : config.entrySet()) {
             ConfigKey<?> key = checkNotNull(entry.getKey(), "config=%s", config);
-            Object value = configValueToPersistable(entry.getValue());
+            Object value = configValueToPersistable(entry.getValue(), feed, key.getName());
             builder.config.put(key.getName(), value); 
         }
         
@@ -435,11 +446,13 @@ public class MementosGenerators {
         if (Proxy.isProxyClass(instance.getClass())) {
             throw new IllegalStateException("Attempt to create memento from proxy "+instance+" (would fail with wrong type)");
         }
+        OsgiClassPrefixer prefixer = new OsgiClassPrefixer();
+        Optional<String> typePrefix = prefixer.getPrefix(instance.getClass());
         
         builder.id = instance.getId();
         builder.displayName = instance.getDisplayName();
         builder.catalogItemId = instance.getCatalogItemId();
-        builder.type = instance.getClass().getName();
+        builder.type = (typePrefix.isPresent() ? typePrefix.get() : "") + instance.getClass().getName();
         builder.typeClass = instance.getClass();
         if (instance instanceof EntityAdjunct) {
             builder.uniqueTag = ((EntityAdjunct)instance).getUniqueTag();
@@ -457,17 +470,43 @@ public class MementosGenerators {
         }
     }
 
+    /** @deprecated since 0.10.0; use {@link #configValueToPersistable(Object, BrooklynObject, String)} */ @Deprecated
     protected static Object configValueToPersistable(Object value) {
+        return configValueToPersistable(value, null, null);
+    }
+    
+    private static Set<String> WARNED_ON_PERSISTING_TASK_CONFIG = MutableSet.of();
+    
+    protected static Object configValueToPersistable(Object value, BrooklynObject obj, String keyName) {
         // TODO Swapping an attributeWhenReady task for the actual value, if completed.
         // Long-term, want to just handle task-persistence properly.
         if (value instanceof Task) {
             Task<?> task = (Task<?>) value;
+            String contextName = "";
+            if (obj!=null) {
+                contextName = obj.getCatalogItemId();
+                if (Strings.isBlank(contextName)) contextName= obj.getDisplayName();
+            }
+            if (keyName!=null) {
+                if (Strings.isNonBlank(contextName)) contextName += ":";
+                contextName += keyName;
+            }
+            String message = "Persisting "+contextName+" - encountered task "+value;
+            Object result = null;
             if (task.isDone() && !task.isError()) {
-                return task.getUnchecked();
+                result = task.getUnchecked();
+                message += "; persisting result "+result;
             } else {
                 // TODO how to record a completed but errored task?
-                return null;
+                message += "; persisting as null";
+                result = null;
             }
+            if (WARNED_ON_PERSISTING_TASK_CONFIG.add(contextName)) {
+                log.warn(message+" (subsequent values for this key will be at null)");
+            } else {
+                log.debug(message);
+            }
+            return result;
         }
         return value;
     }

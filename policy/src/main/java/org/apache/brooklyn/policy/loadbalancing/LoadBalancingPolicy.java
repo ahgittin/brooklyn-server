@@ -22,7 +22,6 @@ import static org.apache.brooklyn.util.JavaGroovyEquivalents.elvis;
 import static org.apache.brooklyn.util.JavaGroovyEquivalents.groovyTruth;
 
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -35,8 +34,7 @@ import org.apache.brooklyn.api.sensor.AttributeSensor;
 import org.apache.brooklyn.api.sensor.Sensor;
 import org.apache.brooklyn.api.sensor.SensorEvent;
 import org.apache.brooklyn.api.sensor.SensorEventListener;
-import org.apache.brooklyn.config.ConfigKey;
-import org.apache.brooklyn.core.entity.EntityInternal;
+import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.policy.AbstractPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,6 +93,7 @@ public class LoadBalancingPolicy<NodeType extends Entity, ItemType extends Movab
     private TemperatureStates lastEmittedPoolTemperature = null; // "cold" or "hot"
     
     private final SensorEventListener<Object> eventHandler = new SensorEventListener<Object>() {
+        @Override
         @SuppressWarnings({ "rawtypes", "unchecked" })
         public void onEvent(SensorEvent<Object> event) {
             if (LOG.isTraceEnabled()) LOG.trace("{} received event {}", LoadBalancingPolicy.this, event);
@@ -197,6 +196,7 @@ public class LoadBalancingPolicy<NodeType extends Entity, ItemType extends Movab
             long delay = Math.max(0, (executorTime + minPeriodBetweenExecs) - now);
             
             executor.schedule(new Runnable() {
+                @Override
                 public void run() {
                     runWithRetries(3);
                 }
@@ -278,8 +278,8 @@ public class LoadBalancingPolicy<NodeType extends Entity, ItemType extends Movab
         if (LOG.isTraceEnabled()) LOG.trace("{} recording addition of container {}", this, newContainer);
         // Low and high thresholds for the metric we're interested in are assumed to be present
         // in the container's configuration.
-        Number lowThreshold = (Number) findConfigValue(newContainer, lowThresholdConfigKeyName);
-        Number highThreshold = (Number) findConfigValue(newContainer, highThresholdConfigKeyName);
+        Number lowThreshold = newContainer.getConfig(ConfigKeys.newConfigKey(Number.class, lowThresholdConfigKeyName));
+        Number highThreshold = newContainer.getConfig(ConfigKeys.newConfigKey(Number.class, highThresholdConfigKeyName));
         if (lowThreshold == null || highThreshold == null) {
             LOG.warn(
                 "Balanceable container '"+newContainer+"' does not define low- and high- threshold configuration keys: '"+
@@ -295,15 +295,10 @@ public class LoadBalancingPolicy<NodeType extends Entity, ItemType extends Movab
         if (rebalanceNow) scheduleRebalance();
     }
     
-    private static Object findConfigValue(Entity entity, String configKeyName) {
-        Map<ConfigKey<?>, Object> config = ((EntityInternal)entity).getAllConfig();
-        for (Entry<ConfigKey<?>, Object> entry : config.entrySet()) {
-            if (configKeyName.equals(entry.getKey().getName()))
-                return entry.getValue();
-        }
+    private Number findConfigValue(NodeType newContainer, String lowThresholdConfigKeyName2) {
         return null;
     }
-    
+
     // TODO Receiving duplicates of onContainerRemoved (e.g. when running LoadBalancingInmemorySoakTest)
     private void onContainerRemoved(NodeType oldContainer, boolean rebalanceNow) {
         if (LOG.isTraceEnabled()) LOG.trace("{} recording removal of container {}", this, oldContainer);
@@ -318,7 +313,7 @@ public class LoadBalancingPolicy<NodeType extends Entity, ItemType extends Movab
         subscriptions().subscribe(item, metric, eventHandler);
         
         // Update the model, including the current metric value (if any).
-        boolean immovable = (Boolean)elvis(item.getConfig(Movable.IMMOVABLE), false);
+        boolean immovable = elvis(item.getConfig(Movable.IMMOVABLE), false);
         Number currentValue = item.getAttribute(metric);
         model.onItemAdded(item, parentContainer, immovable);
         if (currentValue != null)

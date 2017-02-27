@@ -24,7 +24,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.ServiceLoader;
 import java.util.TreeMap;
 
 import org.apache.brooklyn.api.framework.FrameworkLookup;
@@ -130,7 +129,9 @@ public class TypePlanTransformers {
                     (Strings.isNonBlank(e.getMessage()) ? " ("+e.getMessage()+")" : ""));
             } catch (Throwable e) {
                 Exceptions.propagateIfFatal(e);
-                failuresFromTransformers.add(new PropagatedRuntimeException("Transformer for "+t.getFormatCode()+" gave an error creating this plan: "+
+                failuresFromTransformers.add(new PropagatedRuntimeException(
+                    (type.getSymbolicName()!=null ? "Error in definition of "+type.getId() : 
+                        "Transformer for "+t.getFormatCode()+" gave an error creating this plan") + ": "+
                     Exceptions.collapseText(e), e));
             }
         }

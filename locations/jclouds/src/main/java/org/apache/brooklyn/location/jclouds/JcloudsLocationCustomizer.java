@@ -18,23 +18,27 @@
  */
 package org.apache.brooklyn.location.jclouds;
 
-import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.jclouds.compute.ComputeService;
 import org.jclouds.compute.domain.Template;
 import org.jclouds.compute.domain.TemplateBuilder;
 import org.jclouds.compute.options.TemplateOptions;
 
-import com.google.common.annotations.Beta;
-
 /**
  * Customization hooks to allow apps to perform specific customisation at each stage of jclouds machine provisioning.
  * For example, an app could attach an EBS volume to an EC2 node, or configure a desired availability zone.
- * <p/>
- * Instances will be invoked with the {@link ConfigBag} being used to obtain a machine by the
- * {@link JcloudsLocation }if such a constructor exists. If not, the default no argument constructor
- * will be invoked.
+ * <p>
+ * Users are strongly encouraged to sub-class {@link org.apache.brooklyn.location.jclouds.BasicJcloudsLocationCustomizer}, 
+ * to give some protection against this API changing in future releases.
+ * <p>
+ * Customizers can be instantiated on-demand, so the {@link #postRelease(JcloudsMachineLocation)}
+ * and {@link #postRelease(JcloudsMachineLocation)} methods may not be called on the same instance 
+ * as was used in provisioning. This is always true after a Brooklyn restart, and may be true at 
+ * other times depending how the customizer has been wired in.
+ * <p>
+ * However the customize functions will be called sequentially on the same instance during provisioning,
+ * unless Brooklyn is stopped (or fails over to a high-availability standby), in which case VM 
+ * provisioning would abort anyway.
  */
-@Beta
 public interface JcloudsLocationCustomizer {
 
     /**
@@ -46,7 +50,7 @@ public interface JcloudsLocationCustomizer {
     /**
      * Override to configure a subclass of this with the built template, or to configure the built
      * template's {@link org.jclouds.compute.options.TemplateOptions}.
-     * <p/>
+     * <p>
      * This method will be called before {@link #customize(JcloudsLocation, ComputeService, TemplateOptions)}.
      */
     void customize(JcloudsLocation location, ComputeService computeService, Template template);
@@ -59,39 +63,12 @@ public interface JcloudsLocationCustomizer {
 
     /**
      * Override to configure the given machine once it has been created and started by Jclouds.
-     * <p/>
-     * If {@link JcloudsLocationConfig#WAIT_FOR_SSHABLE} is true the
-     * machine is guaranteed to be SSHable when this method is called.
-     * 
-     * @since 0.7.0; use {@link #customize(JcloudsLocation, ComputeService, JcloudsMachineLocation)}
-     */
-    @Deprecated
-    void customize(JcloudsLocation location, ComputeService computeService, JcloudsSshMachineLocation machine);
-    
-    /**
-     * Override to handle machine-related cleanup before Jclouds is called to release (destroy) the machine.
-     * 
-     * @since 0.7.0; use {@link #preRelease(JcloudsMachineLocation)}
-     */
-    @Deprecated
-    void preRelease(JcloudsSshMachineLocation machine);
-
-    /**
-     * Override to handle machine-related cleanup after Jclouds is called to release (destroy) the machine.
-     * 
-     * @since 0.7.0; use {@link #postRelesae(JcloudsMachineLocation)}
-     */
-    @Deprecated
-    void postRelease(JcloudsSshMachineLocation machine);
-
-    /**
-     * Override to configure the given machine once it has been created and started by Jclouds.
-     * <p/>
-     * If {@link JcloudsLocationConfig#WAIT_FOR_SSHABLE} is true the
-     * machine is guaranteed to be SSHable when this method is called.
+     * <p>
+     * If {@link JcloudsLocationConfig#WAIT_FOR_SSHABLE} is true the machine is guaranteed to be
+     * SSHable when this method is called.
      */
     void customize(JcloudsLocation location, ComputeService computeService, JcloudsMachineLocation machine);
-    
+
     /**
      * Override to handle machine-related cleanup before Jclouds is called to release (destroy) the machine.
      */

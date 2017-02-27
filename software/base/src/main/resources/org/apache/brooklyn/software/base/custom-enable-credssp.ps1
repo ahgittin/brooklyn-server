@@ -23,6 +23,9 @@
 
 function Custom-Enable-CredSSP {
 <#
+.DEPRECATED
+Please use classpath://org/apache/brooklyn/software/winrm/utils/enable-credssp.ps1
+
 .SYNOPSIS
 Enables and configures CredSSP Authentication to be used in PowerShell remoting sessions
 

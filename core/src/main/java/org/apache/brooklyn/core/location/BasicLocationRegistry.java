@@ -40,9 +40,10 @@ import org.apache.brooklyn.api.location.LocationSpec;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.typereg.BrooklynTypeRegistry;
 import org.apache.brooklyn.api.typereg.RegisteredType;
-import org.apache.brooklyn.config.ConfigMap;
+import org.apache.brooklyn.config.StringConfigMap;
 import org.apache.brooklyn.core.config.ConfigPredicates;
 import org.apache.brooklyn.core.config.ConfigUtils;
+import org.apache.brooklyn.core.internal.BrooklynProperties;
 import org.apache.brooklyn.core.location.internal.LocationInternal;
 import org.apache.brooklyn.core.mgmt.internal.LocalLocationManager;
 import org.apache.brooklyn.core.mgmt.internal.ManagementContextInternal;
@@ -53,7 +54,6 @@ import org.apache.brooklyn.util.collections.MutableMap;
 import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.guava.Maybe;
-import org.apache.brooklyn.util.guava.Maybe.Absent;
 import org.apache.brooklyn.util.javalang.JavaClassNames;
 import org.apache.brooklyn.util.text.Identifiers;
 import org.apache.brooklyn.util.text.StringEscapes.JavaStringEscapes;
@@ -274,7 +274,7 @@ public class BasicLocationRegistry implements LocationRegistry {
             // we need ability/format for persisting named locations, and better support for adding+saving via REST/GUI)
             int count = 0; 
             String NAMED_LOCATION_PREFIX = "brooklyn.location.named.";
-            ConfigMap namedLocationProps = mgmt.getConfig().submap(ConfigPredicates.nameStartsWith(NAMED_LOCATION_PREFIX));
+            StringConfigMap namedLocationProps = mgmt.getConfig().submap(ConfigPredicates.nameStartsWith(NAMED_LOCATION_PREFIX));
             for (String k: namedLocationProps.asMapWithStringKeys().keySet()) {
                 String name = k.substring(NAMED_LOCATION_PREFIX.length());
                 // If has a dot, then is a sub-property of a named location (e.g. brooklyn.location.named.prod1.user=bob)
@@ -283,8 +283,8 @@ public class BasicLocationRegistry implements LocationRegistry {
                     String spec = (String) namedLocationProps.asMapWithStringKeys().get(k);
                     // make up an ID
                     String id = Identifiers.makeRandomId(8);
-                    Map<String, Object> config = ConfigUtils.filterForPrefixAndStrip(namedLocationProps.asMapWithStringKeys(), k+".");
-                    definedLocations.put(id, new BasicLocationDefinition(id, name, spec, config));
+                    BrooklynProperties config = ConfigUtils.filterForPrefixAndStrip(namedLocationProps.asMapWithStringKeys(), k+".");
+                    definedLocations.put(id, new BasicLocationDefinition(id, name, spec, config.asMapWithStringKeys()));
                     count++;
                 }
             }
@@ -508,7 +508,7 @@ public class BasicLocationRegistry implements LocationRegistry {
         if (result.isPresent()) 
             return result;
         throw new IllegalStateException("Cannot instantiate location '"+ld+"' pointing at "+ld.getSpec(), 
-            ((Absent<?>)result).getException() );
+            Maybe.getException(result) );
     }
     
     @Override

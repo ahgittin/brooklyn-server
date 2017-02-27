@@ -224,7 +224,7 @@ public class LocalLocationManager implements LocationManagerInternal {
             }
         }
 
-        recursively(loc, new Predicate<AbstractLocation>() { public boolean apply(AbstractLocation it) {
+        recursively(loc, new Predicate<AbstractLocation>() { @Override public boolean apply(AbstractLocation it) {
             ManagementTransitionMode mode = getLastManagementTransitionMode(it.getId());
             if (mode==null) {
                 setManagementTransitionMode(it, mode = initialMode);
@@ -264,6 +264,7 @@ public class LocalLocationManager implements LocationManagerInternal {
         unmanage(loc, ManagementTransitionMode.guessing(BrooklynObjectManagementMode.MANAGED_PRIMARY, BrooklynObjectManagementMode.NONEXISTENT));
     }
     
+    @Override
     public void unmanage(final Location loc, final ManagementTransitionMode mode) {
         unmanage(loc, mode, false);
     }
@@ -303,7 +304,7 @@ public class LocalLocationManager implements LocationManagerInternal {
             // Need to store all child entities as onManagementStopping removes a child from the parent entity
             
             // As above, see TODO in LocalEntityManager about recursive management / unmanagement v manageAll/unmanageAll
-            recursively(loc, new Predicate<AbstractLocation>() { public boolean apply(AbstractLocation it) {
+            recursively(loc, new Predicate<AbstractLocation>() { @Override public boolean apply(AbstractLocation it) {
                 if (shouldSkipUnmanagement(it)) return false;
                 boolean result = unmanageNonRecursiveRemoveFromRecords(it, mode);
                 if (result) {
@@ -406,9 +407,9 @@ public class LocalLocationManager implements LocationManagerInternal {
             // if not destroying, don't change the parent's children list
             ((AbstractLocation)loc).setParent(null, false);
         }
-        // clear config to help with GC; i know you're not supposed to, but this seems to help, else config bag is littered with refs to entities etc
-        // FIXME relies on config().getLocalBag() returning the underlying bag!
-        ((AbstractLocation)loc).config().getLocalBag().clear();
+        // clear config to help with GC; everyone says you're not supposed to, but this really seems to help, 
+        // else config bag is littered with refs to entities etc and some JVMs seem to keep them around much longer
+        ((AbstractLocation)loc).config().removeAllLocalConfig();
     }
     
     /**

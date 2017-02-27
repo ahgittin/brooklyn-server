@@ -94,7 +94,7 @@ public class OnSubnetNetworkEnricherTest extends BrooklynAppUnitTestSupport {
     public Object[][] provideInvalidVariants() {
         AttributeSensor<HostAndPort> hostAndPortSensor = Sensors.newSensor(HostAndPort.class, "test.hostAndPort");
         List<Object[]> result = Lists.newArrayList();
-        result.add(new Object[] {Attributes.MAIN_URI, (URI)null});
+        result.add(new Object[] {Attributes.MAIN_URI, null});
         result.add(new Object[] {TestEntity.NAME, publicIp+":1234/my/path"}); // must have scheme
         result.add(new Object[] {Attributes.HTTP_PORT, null});
         result.add(new Object[] {Attributes.HTTP_PORT, 1234567});
@@ -102,7 +102,7 @@ public class OnSubnetNetworkEnricherTest extends BrooklynAppUnitTestSupport {
         result.add(new Object[] {TestEntity.NAME, "1234567"});
         result.add(new Object[] {TestEntity.NAME, "thisHasNoPort"});
         result.add(new Object[] {TestEntity.NAME, "portIsTooBig:1234567"});
-        result.add(new Object[] {hostAndPortSensor, (HostAndPort)null});
+        result.add(new Object[] {hostAndPortSensor, null});
         return result.toArray(new Object[result.size()][]);
     }
 
@@ -194,6 +194,22 @@ public class OnSubnetNetworkEnricherTest extends BrooklynAppUnitTestSupport {
         assertAttributeEqualsEventually("string.endpoint.mapped.subnet", ""+privateIp+":1234");
         assertAttributeEqualsEventually("hostAndPort.endpoint.mapped.subnet", ""+privateIp+":1234");
         assertAttributeEqualsEventually("stringHostAndPort.endpoint.mapped.subnet", ""+privateIp+":1234");
+    }
+    
+    @Test(groups="Broken")
+    public <T> void testTransformsWithDefaultPorts() throws Exception {
+        AttributeSensor<String> stringUriWithHttpNoPort = Sensors.newStringSensor("string.uriWithHttpNoPort");
+        AttributeSensor<String> stringUriWithHttpsNoPort = Sensors.newStringSensor("string.uriWithHttpsNoPort");
+
+        entity.sensors().set(Attributes.SUBNET_ADDRESS, privateIp);
+        entity.sensors().set(stringUriWithHttpNoPort, "http://"+publicIp+"/my/path");
+        entity.sensors().set(stringUriWithHttpsNoPort, "https://"+publicIp+"/my/path");
+        entity.addLocations(ImmutableList.of(machine));
+        
+        entity.enrichers().add(EnricherSpec.create(OnSubnetNetworkEnricher.class));
+
+        assertAttributeEqualsEventually("string.uriWithHttpNoPort.mapped.subnet", "http://"+privateIp+"/my/path");
+        assertAttributeEqualsEventually("string.uriWithHttpsNoPort.mapped.subnet", "https://"+privateIp+"/my/path");
     }
     
     @Test

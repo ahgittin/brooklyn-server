@@ -343,6 +343,14 @@ public class StringsTest extends FixedLocaleTest {
         Assert.assertEquals(Strings.maxlenWithEllipsis("hello world", 9), "hello ...");
         Assert.assertEquals(Strings.maxlenWithEllipsis("hello world", 7, "--"), "hello--");
     }
+    
+    public void testLines() {
+        Assert.assertEquals(Strings.lines("a", "b"), "a\nb");
+    }
+    
+    public void testRemoveLines() {
+        Assert.assertEquals(Strings.removeLines(Strings.lines("a", "b"), StringPredicates.containsLiteralIgnoreCase("A")), "b");
+    }
 
     @Test
     public void testGetRemainderOfLineAfter() {
@@ -384,5 +392,15 @@ public class StringsTest extends FixedLocaleTest {
 
         Assert.assertEquals(0, Strings.parseCsv("", ",").size());
         Assert.assertEquals(0, Strings.parseCsv("        ", ",").size());
+    }
+    
+    @Test
+    public void testCountOccurrences() throws Exception {
+        assertEquals(Strings.countOccurrences(null, 'a'), 0);
+        assertEquals(Strings.countOccurrences("", 'a'), 0);
+        assertEquals(Strings.countOccurrences("b", 'a'), 0);
+        assertEquals(Strings.countOccurrences("a", 'a'), 1);
+        assertEquals(Strings.countOccurrences("aa", 'a'), 2);
+        assertEquals(Strings.countOccurrences("abba", 'a'), 2);
     }
 }

@@ -61,7 +61,7 @@ public interface JcloudsLocationConfig extends CloudLocationConfig {
     public static final ConfigKey<String> LOGIN_USER_PRIVATE_KEY_FILE = ConfigKeys.newStringConfigKey("loginUser.privateKeyFile",
             "Custom private key for the user who logs in initially", null); 
     public static final ConfigKey<String> EXTRA_PUBLIC_KEY_DATA_TO_AUTH = ConfigKeys.newStringConfigKey("extraSshPublicKeyData",
-        "Additional public key data to add to authorized_keys, on supported clouds (not GCE)", null);
+        "Additional public key data to add to authorized_keys (multi-line string supported, with one key per line)", null);
     @SuppressWarnings("serial")
     public static final ConfigKey<List<String>> EXTRA_PUBLIC_KEY_URLS_TO_AUTH = ConfigKeys.newConfigKey(new TypeToken<List<String>>() {}, 
         "extraSshPublicKeyUrls", "Additional public keys (files or URLs, in SSH2/RFC4716/id_rsa.pub format) to add to authorized_keys", null);
@@ -116,7 +116,7 @@ public interface JcloudsLocationConfig extends CloudLocationConfig {
     @Deprecated
     public static final ConfigKey<Boolean> OPEN_IPTABLES = ConfigKeys.newBooleanConfigKey("openIptables", 
             "[DEPRECATED - use openIptables on SoftwareProcess entity] Whether to open the INBOUND_PORTS via iptables rules; " +
-            "if true then ssh in to run iptables commands, as part of machine provisioning", false);
+            "if true then ssh in to run iptables commands, as part of machine provisioning", true);
 
     /**
      * @deprecated since 0.8.0; instead configure this on the entity. See SoftwareProcess.STOP_IPTABLES.
@@ -203,13 +203,17 @@ public interface JcloudsLocationConfig extends CloudLocationConfig {
     /** @deprecated since 0.7.0; use {@link #JCLOUDS_LOCATION_CUSTOMIZERS} instead */
     @Deprecated
     public static final ConfigKey<String> JCLOUDS_LOCATION_CUSTOMIZER_TYPE = ConfigKeys.newStringConfigKey(
-            "customizerType", "Optional location customizer type (to be class-loaded and constructed with no-arg constructor)");
+            "customizerType", "Optional location customizer type (to be class-loaded and constructed with either a ConfigBag or no-arg constructor)");
 
     /** @deprecated since 0.7.0; use {@link #JCLOUDS_LOCATION_CUSTOMIZERS} instead */
     @Deprecated
     public static final ConfigKey<String> JCLOUDS_LOCATION_CUSTOMIZERS_SUPPLIER_TYPE = ConfigKeys.newStringConfigKey(
             "customizersSupplierType", "Optional type of a Supplier<Collection<JcloudsLocationCustomizer>> " +
-            "(to be class-loaded and constructed with ConfigBag or no-arg constructor)");
+            "(to be class-loaded and constructed with either a ConfigBag or no-arg constructor)");
+
+    ConfigKey<ConnectivityResolver> CONNECTIVITY_RESOLVER = ConfigKeys.newConfigKey(ConnectivityResolver.class,
+            "connectivityResolver",
+            "Optional instance of a ConnectivityResolver that the location will use in favour of " + DefaultConnectivityResolver.class.getSimpleName());
 
     public static final ConfigKey<String> LOCAL_TEMP_DIR = SshTool.PROP_LOCAL_TEMP_DIR;
     
@@ -257,11 +261,10 @@ public interface JcloudsLocationConfig extends CloudLocationConfig {
     public static final ConfigKey<JcloudsPortForwarderExtension> PORT_FORWARDER = ConfigKeys.newConfigKey(
             JcloudsPortForwarderExtension.class, "portforwarding.forwarder", "The port-forwarder to use");
     
-    public static final ConfigKey<PortForwardManager> PORT_FORWARDING_MANAGER = BrooklynAccessUtils
-            .PORT_FORWARDING_MANAGER;
+    public static final ConfigKey<PortForwardManager> PORT_FORWARDING_MANAGER = BrooklynAccessUtils.PORT_FORWARDING_MANAGER;
 
     public static final ConfigKey<Integer> MACHINE_CREATE_ATTEMPTS = ConfigKeys.newIntegerConfigKey(
-            "machineCreateAttempts", "Number of times to retry if jclouds fails to create a VM", 1);
+            "machineCreateAttempts", "Number of times to retry if jclouds fails to create a VM", 2);
 
     public static final ConfigKey<Integer> MAX_CONCURRENT_MACHINE_CREATIONS = ConfigKeys.newIntegerConfigKey(
             "maxConcurrentMachineCreations", "Maximum number of concurrent machine-creations", Integer.MAX_VALUE);
@@ -293,9 +296,15 @@ public interface JcloudsLocationConfig extends CloudLocationConfig {
     public static final ConfigKey<Map<String,Object>> TEMPLATE_OPTIONS = ConfigKeys.newConfigKey(
             new TypeToken<Map<String, Object>>() {}, "templateOptions", "Additional jclouds template options");
 
-    // TODO
-    
-//  "noDefaultSshKeys" - hints that local ssh keys should not be read as defaults
-    // this would be useful when we need to indicate a password
+    /**
+     * The purpose of this config is to aid deployment of blueprints to clouds where it is difficult to get nodes to
+     * communicate via private IPs. This config allows a user to overwrite private IPs as public IPs, thus ensuring
+     * that any blueprints they wish to deploy which may use private IPs still work in these clouds.
+     */
+    @Beta
+    public static final ConfigKey<Boolean> USE_MACHINE_PUBLIC_ADDRESS_AS_PRIVATE_ADDRESS = ConfigKeys.newBooleanConfigKey(
+            "useMachinePublicAddressAsPrivateAddress",
+            "When true we will use the public IP/Hostname of a JClouds Location as the private IP/Hostname",
+            false);
 
 }

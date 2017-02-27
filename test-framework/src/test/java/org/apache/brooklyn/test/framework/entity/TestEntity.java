@@ -27,10 +27,6 @@ import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.entity.trait.Startable;
 import org.apache.brooklyn.core.sensor.AttributeSensorAndConfigKey;
 
-/**
- * @author m4rkmckenna on 27/10/2015.
- */
-
 @ImplementedBy(TestEntityImpl.class)
 public interface TestEntity extends Entity, Startable {
 
@@ -50,6 +46,12 @@ public interface TestEntity extends Entity, Startable {
 
     @Effector
     String effectorReturnsString(@EffectorParam(name = "stringToReturn") final String stringToReturn);
+
+    @Effector
+    Integer effectorReturnsInt(@EffectorParam(name = "intToReturn") Integer intToReturn);
+
+    @Effector
+    void effectorHangs();
 
     class TestPojo {
         private final String stringValue;

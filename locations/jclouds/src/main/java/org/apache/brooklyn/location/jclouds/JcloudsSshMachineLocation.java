@@ -18,6 +18,7 @@
  */
 package org.apache.brooklyn.location.jclouds;
 
+import static org.apache.brooklyn.location.jclouds.JcloudsLocationConfig.USE_MACHINE_PUBLIC_ADDRESS_AS_PRIVATE_ADDRESS;
 import static org.apache.brooklyn.util.JavaGroovyEquivalents.groovyTruth;
 
 import java.util.List;
@@ -43,6 +44,7 @@ import org.apache.brooklyn.util.core.flags.SetFromFlag;
 import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.net.Networking;
 import org.apache.brooklyn.util.text.Strings;
+import org.jclouds.compute.ComputeService;
 import org.jclouds.compute.ComputeServiceContext;
 import org.jclouds.compute.callables.RunScriptOnNode;
 import org.jclouds.compute.domain.ExecResponse;
@@ -63,6 +65,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
+import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -115,9 +118,15 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
      * intermediate stage, where we want to handle rebinding to old state that has "node"
      * and new state that should not. We therefore leave in the {@code @SetFromFlag} on node
      * so that we read it back, but we ensure the value is null when we write it out!
+     *
+     * Note that fields in locations behave differently from those in entities. Locations will
+     * update the persisted state with the latest values of fields and will skip transient
+     * properties. Entities don't read back the field values.
      * 
      * TODO We will rename these to get rid of the ugly underscore when the old node/template 
      * fields are deleted.
+     * TODO Should we change callers to pass all the bits of node & template we are interested
+     * in instead of the objects themselves so we don't have to clear them here?
      */
     private transient Optional<NodeMetadata> _node;
 
@@ -125,8 +134,6 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
 
     private transient Optional<Image> _image;
 
-    private RunScriptOnNode.Factory runScriptFactory;
-    
     public JcloudsSshMachineLocation() {
     }
     
@@ -145,42 +152,33 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
     public void init() {
         if (jcloudsParent != null) {
             super.init();
-            ComputeServiceContext context = jcloudsParent.getComputeService().getContext();
-            runScriptFactory = context.utils().injector().getInstance(RunScriptOnNode.Factory.class);
-            if (node != null) {
-                setNode(node);
-            }
-            if (template != null) {
-                setTemplate(template);
-            }
         } else {
             // TODO Need to fix the rebind-detection, and not call init() on rebind.
             // This will all change when locations become entities.
+            // Note that the happy path for rebind will go through the above case!
             if (LOG.isDebugEnabled()) LOG.debug("Not doing init() of {} because parent not set; presuming rebinding", this);
         }
+        clearDeprecatedProperties();
     }
-    
+
     @Override
     public void rebind() {
         super.rebind();
         
-        if (jcloudsParent != null) {
+        if (jcloudsParent == null) {
             // can be null on rebind, if location has been "orphaned" somehow
-            ComputeServiceContext context = jcloudsParent.getComputeService().getContext();
-            runScriptFactory = context.utils().injector().getInstance(RunScriptOnNode.Factory.class);
-        } else {
-            LOG.warn("Location {} does not have parent; cannot retrieve jclouds compute-service or "
-                    + "run-script factory; later operations may fail (continuing)", this);
+            LOG.warn("Location {} does not have parent; cannot retrieve jclouds compute-service; "
+                    + "later operations may fail (continuing)", this);
         }
-        
+        clearDeprecatedProperties();
+    }
+
+    protected void clearDeprecatedProperties() {
         if (node != null) {
             setNode(node);
-            node = null;
         }
-
         if (template != null) {
             setTemplate(template);
-            template = null;
         }
     }
     
@@ -201,23 +199,49 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
 
     protected void setNode(NodeMetadata node) {
         this.node = null;
+        config().removeKey("node");
         nodeId = node.getId();
         imageId = node.getImageId();
-        privateAddresses = node.getPrivateAddresses();
         publicAddresses = node.getPublicAddresses();
         _node = Optional.of(node);
+
+        Boolean useMachinePublicAddressAsPrivateAddress = config().get(USE_MACHINE_PUBLIC_ADDRESS_AS_PRIVATE_ADDRESS);
+        if(useMachinePublicAddressAsPrivateAddress) {
+            LOG.debug("Overriding private address ["+node.getPrivateAddresses()+"] as public address ["+node.getPublicAddresses()+"] as config "+ USE_MACHINE_PUBLIC_ADDRESS_AS_PRIVATE_ADDRESS +" is set to true");
+            privateAddresses = node.getPublicAddresses();
+        } else {
+            privateAddresses = node.getPrivateAddresses();
+        }
     }
 
     protected void setTemplate(Template template) {
         this.template = null;
+        config().removeKey("template");
         _template = Optional.of(template);
         _image = Optional.fromNullable(template.getImage());
     }
 
+    protected ComputeService getComputeServiceOrNull() {
+        JcloudsLocation parent = getParent();
+        return (parent != null) ? parent.getComputeService() : null;
+    }
+    
     @Override
     public Optional<NodeMetadata> getOptionalNode() {
       if (_node == null) {
-          _node = Optional.fromNullable(getParent().getComputeService().getNodeMetadata(nodeId));
+          try {
+              ComputeService computeService = getComputeServiceOrNull();
+              if (computeService == null) {
+                  if (LOG.isDebugEnabled()) LOG.debug("Cannot get node for {}, because cannot get compute-service from parent {}", this, getParent());
+                  _node = Optional.absent();
+              } else {
+                  _node = Optional.fromNullable(computeService.getNodeMetadata(nodeId));
+              }
+          } catch (Exception e) {
+              Exceptions.propagateIfFatal(e);
+              if (LOG.isDebugEnabled()) LOG.debug("Problem getting node-metadata for " + this + ", node id " + nodeId + " (continuing)", e);
+              _node = Optional.absent();
+          }
       }
       return _node;
     }
@@ -227,7 +251,19 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
           if (imageId == null) {
               _image = Optional.absent(); // can happen with JcloudsLocation.resumeMachine() usage
           } else {
-              _image = Optional.fromNullable(getParent().getComputeService().getImage(imageId));
+              try {
+                  ComputeService computeService = getComputeServiceOrNull();
+                  if (computeService == null) {
+                      if (LOG.isDebugEnabled()) LOG.debug("Cannot get image (with id {}) for {}, because cannot get compute-service from parent {}", new Object[] {imageId, this, getParent()});
+                      _image = Optional.absent();
+                  } else {
+                      _image = Optional.fromNullable(computeService.getImage(imageId));
+                  }
+              } catch (Exception e) {
+                  Exceptions.propagateIfFatal(e);
+                  if (LOG.isDebugEnabled()) LOG.debug("Problem getting image for " + this + ", image id " + imageId + " (continuing)", e);
+                  _image = Optional.absent();
+              }
           }
       }
       return _image;
@@ -296,7 +332,7 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
             Optional<NodeMetadata> node = getOptionalNode();
             if (node.isPresent()) {
                 HostAndPort sshHostAndPort = getSshHostAndPort();
-                LoginCredentials creds = getLoginCredentials();
+                Supplier<LoginCredentials> creds = getLoginCredentialsSupplier();
                 hostname = jcloudsParent.getPublicHostname(node.get(), Optional.of(sshHostAndPort), creds, config().getBag());
                 requestPersist();
 
@@ -339,7 +375,7 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
                 // If we can't get the node (i.e. the cloud provider doesn't know that id, because it has
                 // been terminated), then we don't care as much about getting the right id!
                 HostAndPort sshHostAndPort = getSshHostAndPort();
-                LoginCredentials creds = getLoginCredentials();
+                Supplier<LoginCredentials> creds = getLoginCredentialsSupplier();
                 privateHostname = jcloudsParent.getPrivateHostname(node.get(), Optional.of(sshHostAndPort), creds, config().getBag());
 
             } else {
@@ -384,9 +420,10 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
     protected Optional<String> getPrivateAddress() {
         for (String p : getPrivateAddresses()) {
             // disallow local only addresses
-            if (Networking.isLocalOnly(p)) continue;
-            // other things may be public or private, but either way, return it
-            return Optional.of(p);
+            if (!Networking.isLocalOnly(p)) {
+                // other things may be public or private, but either way, return it
+                return Optional.of(p);
+            }
         }
         return Optional.absent();
     }
@@ -426,12 +463,20 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
      */
     @Deprecated
     public ListenableFuture<ExecResponse> submitRunScript(Statement script, RunScriptOptions options) {
+        JcloudsLocation jcloudsParent = getParent();
         Optional<NodeMetadata> node = getOptionalNode();
-        if (node.isPresent()) {
-            return runScriptFactory.submit(node.get(), script, options);
-        } else {
-            throw new IllegalStateException("Node "+nodeId+" not present in "+getParent());
+
+        if (!node.isPresent()) {
+            throw new IllegalStateException("Node "+nodeId+" not present in "+jcloudsParent);
         }
+        if (jcloudsParent == null) {
+            throw new IllegalStateException("No jclouds parent location for "+this+"; cannot retrieve jclouds script-runner");
+        }
+
+        ComputeServiceContext context = jcloudsParent.getComputeService().getContext();
+        RunScriptOnNode.Factory runScriptFactory = context.utils().injector().getInstance(RunScriptOnNode.Factory.class);
+        
+        return runScriptFactory.submit(node.get(), script, options);
     }
     
     /**
@@ -480,6 +525,14 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
         }
     }
 
+    private Supplier<LoginCredentials> getLoginCredentialsSupplier() {
+        return new Supplier<LoginCredentials>() {
+            @Override public LoginCredentials get() {
+                return getLoginCredentials();
+            }
+        };
+    }
+    
     private LoginCredentials getLoginCredentials() {
         OsCredential creds = LocationConfigUtils.getOsCredential(new ResolvingConfigBag(getManagementContext(), config().getBag()));
         
@@ -570,16 +623,16 @@ public class JcloudsSshMachineLocation extends SshMachineLocation implements Jcl
 
     @Override
     public Map<String, String> toMetadataRecord() {
+        JcloudsLocation parent = getParent();
         Optional<NodeMetadata> node = getOptionalNode();
-        
         Optional<Hardware> hardware = getOptionalHardware();
         List<? extends Processor> processors = hardware.isPresent() ? hardware.get().getProcessors() : null;
         
         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         builder.putAll(super.toMetadataRecord());
-        putIfNotNull(builder, "provider", getParent().getProvider());
-        putIfNotNull(builder, "account", getParent().getIdentity());
-        putIfNotNull(builder, "region", getParent().getRegion());
+        putIfNotNull(builder, "provider", (parent != null) ? parent.getProvider() : null);
+        putIfNotNull(builder, "account", (parent != null) ? parent.getIdentity() : null);
+        putIfNotNull(builder, "region", (parent != null) ? parent.getRegion() : null);
         putIfNotNull(builder, "serverId", getJcloudsId());
         putIfNotNull(builder, "imageId", getImageId());
         putIfNotNull(builder, "instanceTypeName", (hardware.isPresent() ? hardware.get().getName() : null));

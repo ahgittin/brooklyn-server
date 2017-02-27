@@ -39,57 +39,88 @@ import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.location.Location;
 import org.apache.brooklyn.api.location.LocationSpec;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
+import org.apache.brooklyn.api.mgmt.Task;
 import org.apache.brooklyn.api.mgmt.rebind.mementos.BrooklynMementoPersister.LookupContext;
 import org.apache.brooklyn.api.objs.BrooklynObject;
 import org.apache.brooklyn.api.objs.BrooklynObjectType;
 import org.apache.brooklyn.api.policy.Policy;
+import org.apache.brooklyn.api.sensor.AttributeSensor;
 import org.apache.brooklyn.api.sensor.Enricher;
 import org.apache.brooklyn.api.sensor.Feed;
 import org.apache.brooklyn.api.typereg.RegisteredType;
+import org.apache.brooklyn.config.ConfigInheritance;
 import org.apache.brooklyn.core.catalog.internal.CatalogItemBuilder;
 import org.apache.brooklyn.core.catalog.internal.CatalogItemDtoAbstract;
+import org.apache.brooklyn.core.config.BasicConfigInheritance;
+import org.apache.brooklyn.core.entity.Attributes;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.location.SimulatedLocation;
+import org.apache.brooklyn.core.mgmt.ha.OsgiManager;
+import org.apache.brooklyn.core.mgmt.internal.ManagementContextInternal;
+import org.apache.brooklyn.core.mgmt.osgi.OsgiStandaloneTest;
 import org.apache.brooklyn.core.mgmt.osgi.OsgiVersionMoreEntityTest;
 import org.apache.brooklyn.core.test.entity.LocalManagementContextForTests;
 import org.apache.brooklyn.core.test.entity.TestApplication;
 import org.apache.brooklyn.core.test.entity.TestEntity;
 import org.apache.brooklyn.entity.group.DynamicCluster;
+import org.apache.brooklyn.test.LogWatcher;
+import org.apache.brooklyn.test.LogWatcher.EventPredicates;
 import org.apache.brooklyn.test.support.TestResourceUnavailableException;
 import org.apache.brooklyn.util.collections.MutableList;
 import org.apache.brooklyn.util.collections.MutableMap;
 import org.apache.brooklyn.util.collections.MutableSet;
+import org.apache.brooklyn.util.core.osgi.Osgis;
+import org.apache.brooklyn.util.core.task.BasicTask;
+import org.apache.brooklyn.util.javalang.Reflections;
 import org.apache.brooklyn.util.net.Networking;
 import org.apache.brooklyn.util.net.UserAndHostAndPort;
 import org.apache.brooklyn.util.osgi.OsgiTestResources;
+import org.osgi.framework.Bundle;
+import org.osgi.framework.launch.Framework;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.Assert;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.google.api.client.repackaged.com.google.common.base.Joiner;
+import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
+import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.Callables;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+
+import ch.qos.logback.classic.spi.ILoggingEvent;
 
 public class XmlMementoSerializerTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(XmlMementoSerializerTest.class);
 
     private XmlMementoSerializer<Object> serializer;
-
+    private ManagementContext mgmt;
+    
     @BeforeMethod(alwaysRun=true)
     public void setUp() throws Exception {
         serializer = new XmlMementoSerializer<Object>(XmlMementoSerializerTest.class.getClassLoader());
     }
 
+    @AfterMethod(alwaysRun=true)
+    private void tearDown() {
+        if (mgmt != null) {
+            Entities.destroyAllCatching(mgmt);
+            mgmt = null;
+        }
+    }
+    
     @Test
     public void testRenamedClass() throws Exception {
         serializer = new XmlMementoSerializer<Object>(XmlMementoSerializerTest.class.getClassLoader(),
@@ -245,6 +276,12 @@ public class XmlMementoSerializerTest {
     }
 
     @Test
+    public void testSensorWithTypeToken() throws Exception {
+        AttributeSensor<Map<String, Object>> obj = Attributes.SERVICE_NOT_UP_DIAGNOSTICS;
+        assertSerializeAndDeserialize(obj);
+    }
+
+    @Test
     public void testClass() throws Exception {
         Class<?> t = XmlMementoSerializer.class;
         assertSerializeAndDeserialize(t);
@@ -337,23 +374,101 @@ public class XmlMementoSerializerTest {
     @Test
     public void testEntitySpecFromOsgi() throws Exception {
         TestResourceUnavailableException.throwIfResourceUnavailable(getClass(), OsgiTestResources.BROOKLYN_TEST_MORE_ENTITIES_V1_PATH);
-        ManagementContext mgmt = LocalManagementContextForTests.builder(true).disableOsgi(false).build();
-        try {
-            RegisteredType ci = OsgiVersionMoreEntityTest.addMoreEntityV1(mgmt, "1.0");
+        mgmt = LocalManagementContextForTests.builder(true).disableOsgi(false).build();
+        
+        RegisteredType ci = OsgiVersionMoreEntityTest.addMoreEntityV1(mgmt, "1.0");
             
-            EntitySpec<DynamicCluster> spec = EntitySpec.create(DynamicCluster.class)
-                .configure(DynamicCluster.INITIAL_SIZE, 1)
-                .configure(DynamicCluster.MEMBER_SPEC, mgmt.getTypeRegistry().createSpec(ci, null, EntitySpec.class));
+        EntitySpec<DynamicCluster> spec = EntitySpec.create(DynamicCluster.class)
+            .configure(DynamicCluster.INITIAL_SIZE, 1)
+            .configure(DynamicCluster.MEMBER_SPEC, mgmt.getTypeRegistry().createSpec(ci, null, EntitySpec.class));
+
+        serializer.setLookupContext(new LookupContextImpl(mgmt,
+            ImmutableList.<Entity>of(), ImmutableList.<Location>of(), ImmutableList.<Policy>of(),
+            ImmutableList.<Enricher>of(), ImmutableList.<Feed>of(), ImmutableList.<CatalogItem<?,?>>of(), true));
+        assertSerializeAndDeserialize(spec);
+    }
     
-            serializer.setLookupContext(new LookupContextImpl(mgmt,
-                ImmutableList.<Entity>of(), ImmutableList.<Location>of(), ImmutableList.<Policy>of(),
-                ImmutableList.<Enricher>of(), ImmutableList.<Feed>of(), ImmutableList.<CatalogItem<?,?>>of(), true));
-            assertSerializeAndDeserialize(spec);
-        } finally {
-            Entities.destroyAllCatching(mgmt);
-        }
+    @Test
+    public void testOsgiBundleNameNotIncludedForWhiteListed() throws Exception {
+        mgmt = LocalManagementContextForTests.builder(true).disableOsgi(false).build();
+
+        serializer.setLookupContext(new LookupContextImpl(mgmt,
+            ImmutableList.<Entity>of(), ImmutableList.<Location>of(), ImmutableList.<Policy>of(),
+            ImmutableList.<Enricher>of(), ImmutableList.<Feed>of(), ImmutableList.<CatalogItem<?,?>>of(), true));
+        
+        Object obj = PersistMode.AUTO;
+        
+        assertSerializeAndDeserialize(obj);
+
+        // i.e. not pre-pended with "org.apache.brooklyn.core:"
+        String expectedForm = "<"+PersistMode.class.getName()+">AUTO</"+PersistMode.class.getName()+">";
+        String serializedForm = serializer.toString(obj);
+        assertEquals(serializedForm.trim(), expectedForm.trim());
     }
 
+    @Test
+    public void testOsgiBundleNamePrefixIncluded() throws Exception {
+        String bundlePath = OsgiStandaloneTest.BROOKLYN_TEST_OSGI_ENTITIES_PATH;
+        String bundleUrl = OsgiStandaloneTest.BROOKLYN_TEST_OSGI_ENTITIES_URL;
+        TestResourceUnavailableException.throwIfResourceUnavailable(getClass(), bundlePath);
+        
+        mgmt = LocalManagementContextForTests.builder(true).disableOsgi(false).build();
+
+        serializer.setLookupContext(new LookupContextImpl(mgmt,
+                ImmutableList.<Entity>of(), ImmutableList.<Location>of(), ImmutableList.<Policy>of(),
+                ImmutableList.<Enricher>of(), ImmutableList.<Feed>of(), ImmutableList.<CatalogItem<?,?>>of(), true));
+        
+        Bundle bundle = installBundle(mgmt, bundleUrl);
+        
+        String classname = OsgiTestResources.BROOKLYN_TEST_OSGI_ENTITIES_SIMPLE_OBJECT;
+        Class<?> osgiObjectClazz = bundle.loadClass(classname);
+        Object obj = Reflections.invokeConstructorFromArgs(osgiObjectClazz, "myval").get();
+
+        assertSerializeAndDeserialize(obj);
+
+        // i.e. prepended with bundle name
+        String expectedForm = Joiner.on("\n").join(
+                "<"+bundle.getSymbolicName()+":"+classname+">",
+                "  <val>myval</val>",
+                "</"+bundle.getSymbolicName()+":"+classname+">");
+        String WHITE_LIST_KEY = "org.apache.brooklyn.classloader.fallback.bundles";
+        String origWhiteList = System.getProperty(WHITE_LIST_KEY);
+        System.setProperty(WHITE_LIST_KEY, "some.none.existend.whitelist:1.0.0");
+        try {
+            String serializedForm = serializer.toString(obj);
+            assertEquals(serializedForm.trim(), expectedForm.trim());
+        } finally {
+            if (origWhiteList != null) {
+                System.setProperty(WHITE_LIST_KEY, origWhiteList);
+            } else {
+                System.clearProperty(WHITE_LIST_KEY);
+            }
+        }
+    }
+    
+    // TODO This doesn't get the bundleName - should we expect it to? Is this because of 
+    // how we're using Felix? Would it also be true in Karaf?
+    @Test(groups="Broken")
+    public void testOsgiBundleNamePrefixIncludedForDownstreamDependency() throws Exception {
+        mgmt = LocalManagementContextForTests.builder(true).disableOsgi(false).build();
+
+        serializer.setLookupContext(new LookupContextImpl(mgmt,
+                ImmutableList.<Entity>of(), ImmutableList.<Location>of(), ImmutableList.<Policy>of(),
+                ImmutableList.<Enricher>of(), ImmutableList.<Feed>of(), ImmutableList.<CatalogItem<?,?>>of(), true));
+        
+        // Using a guava type (which is a downstream dependency of Brooklyn)
+        String bundleName = "com.goole.guava";
+        String classname = "com.google.common.base.Predicates_-ObjectPredicate";
+        Object obj = Predicates.alwaysTrue();
+
+        assertSerializeAndDeserialize(obj);
+
+        // i.e. prepended with bundle name
+        String expectedForm = "<"+bundleName+":"+classname+">ALWAYS_TRUE</"+bundleName+":"+classname+">";
+        String serializedForm = serializer.toString(obj);
+        assertEquals(serializedForm.trim(), expectedForm.trim());
+    }
+    
     @Test
     public void testImmutableCollectionsWithDanglingEntityRef() throws Exception {
         // If there's a dangling entity in an ImmutableList etc, then discard it entirely.
@@ -411,6 +526,32 @@ public class XmlMementoSerializerTest {
         } finally {
             Entities.destroyAll(managementContext);
         }
+    }
+
+    @Test
+    public void testTask() throws Exception {
+        final TestApplication app = TestApplication.Factory.newManagedInstanceForTests();
+        mgmt = app.getManagementContext();
+        Task<String> completedTask = app.getExecutionContext().submit(Callables.returning("myval"));
+        completedTask.get();
+        
+        String loggerName = UnwantedStateLoggingMapper.class.getName();
+        ch.qos.logback.classic.Level logLevel = ch.qos.logback.classic.Level.WARN;
+        Predicate<ILoggingEvent> filter = EventPredicates.containsMessage("Task object serialization is not supported or recommended"); 
+        LogWatcher watcher = new LogWatcher(loggerName, logLevel, filter);
+        
+        String serializedForm;
+        watcher.start();
+        try {
+            serializedForm = serializer.toString(completedTask);
+            watcher.assertHasEvent();
+        } finally {
+            watcher.close();
+        }
+
+        assertEquals(serializedForm.trim(), "<"+BasicTask.class.getName()+">myval</"+BasicTask.class.getName()+">");
+        Object deserialized = serializer.fromString(serializedForm);
+        assertEquals(deserialized, null, "serializedForm="+serializedForm+"; deserialized="+deserialized);
     }
 
     public static class ReffingEntity {
@@ -647,4 +788,19 @@ public class XmlMementoSerializerTest {
             return Objects.hashCode(myStaticInnerField);
         }
     }
+    
+    private Bundle installBundle(ManagementContext mgmt, String bundleUrl) throws Exception {
+        OsgiManager osgiManager = ((ManagementContextInternal)mgmt).getOsgiManager().get();
+        Framework framework = osgiManager.getFramework();
+        return Osgis.install(framework, bundleUrl);
+    }
+    
+    @Test
+    public void testConfigInheritanceVals() throws Exception {
+        ConfigInheritance val = BasicConfigInheritance.NEVER_INHERITED;
+
+        ConfigInheritance newVal = assertSerializeAndDeserialize(val);
+        Assert.assertSame(val, newVal);
+    }
+    
 }

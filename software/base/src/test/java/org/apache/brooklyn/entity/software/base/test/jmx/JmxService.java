@@ -76,6 +76,7 @@ public class JmxService {
     
     /**
      * @deprecated since 0.6.0; either needs abandoning, or updating to support JmxSupport (and JmxmpAgent, etc) */
+    @Deprecated
     public JmxService(Entity e) throws Exception {
         this(e.getAttribute(Attributes.HOSTNAME) != null ? e.getAttribute(Attributes.HOSTNAME) : "localhost", 
                  e.getAttribute(UsesJmx.JMX_PORT) != null ? e.getAttribute(UsesJmx.JMX_PORT) : null);
@@ -98,13 +99,21 @@ public class JmxService {
             server.registerMBean(new NamingService(jmxPort), naming);
             Object proxy = MBeanServerInvocationHandler.newProxyInstance(server, naming, NamingServiceMBean.class, false);
             namingServiceMBean = (NamingServiceMBean) proxy;
-            try {
-                namingServiceMBean.start();
-            } catch (Exception e) {
-                // may take a bit of time for port to be available, if it had just been used
-                logger.warn("JmxService couldn't start test mbean ("+e+"); will delay then retry once");
-                Thread.sleep(1000);
-                namingServiceMBean.start();
+            for (int i=0; ; i++) {
+                try {
+                    namingServiceMBean.start();
+                    break;
+                } catch (Exception e) {
+                    // may take a bit of time for port to be available, if it had just been used
+                    if (i==0) logger.warn("JmxService couldn't start test mbean ("+e+"); will delay and retry");
+                    else if (i>=180) {
+                        logger.warn("JmxService couldn't start test mbean ("+e+"); definitive; throwing "+e);
+                        throw e;
+                    } else {
+                        logger.debug("JmxService couldn't start test mbean on retry attempt "+i+" ("+e+"); will continue retrying");
+                    }
+                    Thread.sleep(1000);
+                }
             }
     
             connectorServer.start();
@@ -166,7 +175,7 @@ public class JmxService {
     }
     
     public StandardEmitterMBean registerMBean(List<String> notifications, String name) throws InstanceAlreadyExistsException, MBeanRegistrationException, NotCompliantMBeanException, MalformedObjectNameException, NullPointerException {
-        String[] types = (String[]) notifications.toArray(new String[0]);
+        String[] types = notifications.toArray(new String[0]);
         MBeanNotificationInfo info = new MBeanNotificationInfo(types, Notification.class.getName(), "Notification");
         NotificationEmitter emitter = new NotificationBroadcasterSupport(info);
         StandardEmitterMBean mbean = new StandardEmitterMBean(emitter, NotificationEmitter.class, emitter);

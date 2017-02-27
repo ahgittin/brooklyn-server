@@ -27,8 +27,6 @@ import java.io.File;
 
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.location.OsDetails;
-import org.apache.brooklyn.core.entity.Entities;
-import org.apache.brooklyn.core.entity.factory.ApplicationBuilder;
 import org.apache.brooklyn.core.mgmt.internal.LocalManagementContext;
 import org.apache.brooklyn.core.mgmt.rebind.RebindOptions;
 import org.apache.brooklyn.core.mgmt.rebind.RebindTestUtils;
@@ -43,6 +41,7 @@ import org.testng.annotations.Test;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
@@ -150,6 +149,8 @@ public class RebindJcloudsLocationLiveTest extends AbstractJcloudsLiveTest {
         assertEquals(ImmutableSet.copyOf(loc2.getChildren()), ImmutableSet.of(machine2));
         
         String errmsg = "loc="+loc2.toVerboseString()+"; machine="+machine2.toVerboseString();
+        assertNull(machine2.config().getLocalBag().getAllConfig().get("node"), errmsg);
+        assertNull(machine2.config().getLocalBag().getAllConfig().get("template"), errmsg);
         assertEquals(machine2.getId(), "aKEcbxKN", errmsg);
         assertEquals(machine2.getJcloudsId(), "ap-southeast-1/i-56fd53f2", errmsg);
         assertEquals(machine2.getSshHostAndPort(), HostAndPort.fromParts("ec2-54-254-23-53.ap-southeast-1.compute.amazonaws.com", 22), errmsg);
@@ -165,11 +166,14 @@ public class RebindJcloudsLocationLiveTest extends AbstractJcloudsLiveTest {
         assertEquals(machine2.getOsDetails().getArch(), "x86_64", errmsg);
         assertEquals(machine2.getOsDetails().getVersion(), "6.5", errmsg);
         assertEquals(machine2.getOsDetails().is64bit(), true, errmsg);
+        
+        // Re-populates the @SetFromFlag fields from config
+        machine2.configure(ImmutableMap.of());
 
         // Force it to be persisted again. Expect to pesist without the NodeMetadata and Template.
         app2.getManagementContext().getRebindManager().getChangeListener().onChanged(loc2);
         app2.getManagementContext().getRebindManager().getChangeListener().onChanged(machine2);
-        RebindTestUtils.waitForPersisted(app2);
+        RebindTestUtils.stopPersistence(app2);
         
         String newMachineXml = new String(java.nio.file.Files.readAllBytes(persistedMachineFile.toPath()));
         assertFalse(newMachineXml.contains("AWSEC2TemplateOptions"), newMachineXml);
@@ -235,7 +239,7 @@ public class RebindJcloudsLocationLiveTest extends AbstractJcloudsLiveTest {
         // Force it to be persisted again. Expect to pesist without the NodeMetadata and Template.
         app2.getManagementContext().getRebindManager().getChangeListener().onChanged(loc2);
         app2.getManagementContext().getRebindManager().getChangeListener().onChanged(machine2);
-        RebindTestUtils.waitForPersisted(app2);
+        RebindTestUtils.stopPersistence(app2);
         
         String newMachineXml = new String(java.nio.file.Files.readAllBytes(persistedMachineFile.toPath()));
         assertFalse(newMachineXml.contains("NodeMetadataImpl"), newMachineXml);
@@ -321,7 +325,7 @@ public class RebindJcloudsLocationLiveTest extends AbstractJcloudsLiveTest {
     }
     
     private TestApplication rebind(RebindOptions options) throws Exception {
-        RebindTestUtils.waitForPersisted(origApp);
+        RebindTestUtils.stopPersistence(origApp);
         return (TestApplication) RebindTestUtils.rebind(options);
     }
 }

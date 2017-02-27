@@ -27,46 +27,39 @@ import java.util.Map;
 import org.apache.brooklyn.api.catalog.CatalogConfig;
 import org.apache.brooklyn.api.entity.Entity;
 import org.apache.brooklyn.api.entity.ImplementedBy;
-import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.objs.SpecParameter;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.entity.AbstractEntity;
 import org.apache.brooklyn.core.entity.BrooklynConfigKeys;
-import org.apache.brooklyn.core.test.entity.LocalManagementContextForTests;
+import org.apache.brooklyn.core.test.BrooklynMgmtUnitTestSupport;
 import org.apache.brooklyn.util.core.ClassLoaderUtils;
-import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.reflect.TypeToken;
 
-public class BasicSpecParameterFromClassTest {
-    private ManagementContext mgmt;
-    @BeforeMethod(alwaysRun=true)
-    public void setUp() {
-        mgmt = LocalManagementContextForTests.newInstance();
-    }
+public class BasicSpecParameterFromClassTest extends BrooklynMgmtUnitTestSupport {
 
     public interface SpecParameterTestEntity extends Entity {
-        @CatalogConfig(label="String Key", priority=3)
+        @CatalogConfig(label="String Key", priority=3, pinned = false)
         ConfigKey<String> STRING_KEY = ConfigKeys.newStringConfigKey("string_key");
 
         @CatalogConfig(label="Integer Key", priority=2)
-        ConfigKey<Integer> INTEGER_KEY = ConfigKeys.newIntegerConfigKey("integer_key");
+        ConfigKey<Integer> INTEGER_PINNED_KEY = ConfigKeys.newIntegerConfigKey("integer_key");
 
         @SuppressWarnings("serial")
         @CatalogConfig(label="Predicate Key", priority=1)
-        ConfigKey<Predicate<String>> PREDICATE_KEY = ConfigKeys.newConfigKey(new TypeToken<Predicate<String>>() {}, "predicate_key");
+        ConfigKey<Predicate<String>> PREDICATE_PINNED_KEY = ConfigKeys.newConfigKey(new TypeToken<Predicate<String>>() {}, "predicate_key");
 
         @SuppressWarnings("serial")
-        @CatalogConfig(label="Hidden 1 Key", priority=-1)
+        @CatalogConfig(label="Hidden 1 Key", priority=-1, pinned = false)
         ConfigKey<Predicate<String>> HIDDEN1_KEY = ConfigKeys.newConfigKey(new TypeToken<Predicate<String>>() {}, "hidden1_key");
 
         @SuppressWarnings("serial")
         @CatalogConfig(label="Hidden 2 Key", priority=-2)
-        ConfigKey<Predicate<String>> HIDDEN2_KEY = ConfigKeys.newConfigKey(new TypeToken<Predicate<String>>() {}, "hidden2_key");
+        ConfigKey<Predicate<String>> HIDDEN2_PINNED_KEY = ConfigKeys.newConfigKey(new TypeToken<Predicate<String>>() {}, "hidden2_key");
 
         ConfigKey<String> UNPINNNED2_KEY = ConfigKeys.newStringConfigKey("unpinned2_key");
         ConfigKey<String> UNPINNNED1_KEY = ConfigKeys.newStringConfigKey("unpinned1_key");
@@ -82,11 +75,11 @@ public class BasicSpecParameterFromClassTest {
     public void testFullDefinition() {
         List<SpecParameter<?>> inputs = BasicSpecParameter.fromClass(mgmt, SpecParameterTestEntity.class);
         assertEquals(inputs.size(), 7);
-        assertInput(inputs.get(0), "String Key", true, SpecParameterTestEntity.STRING_KEY);
-        assertInput(inputs.get(1), "Integer Key", true, SpecParameterTestEntity.INTEGER_KEY);
-        assertInput(inputs.get(2), "Predicate Key", true, SpecParameterTestEntity.PREDICATE_KEY);
-        assertInput(inputs.get(3), "Hidden 1 Key", true, SpecParameterTestEntity.HIDDEN1_KEY);
-        assertInput(inputs.get(4), "Hidden 2 Key", true, SpecParameterTestEntity.HIDDEN2_KEY);
+        assertInput(inputs.get(0), "String Key", false, SpecParameterTestEntity.STRING_KEY);
+        assertInput(inputs.get(1), "Integer Key", true, SpecParameterTestEntity.INTEGER_PINNED_KEY);
+        assertInput(inputs.get(2), "Predicate Key", true, SpecParameterTestEntity.PREDICATE_PINNED_KEY);
+        assertInput(inputs.get(3), "Hidden 1 Key", false, SpecParameterTestEntity.HIDDEN1_KEY);
+        assertInput(inputs.get(4), "Hidden 2 Key", true, SpecParameterTestEntity.HIDDEN2_PINNED_KEY);
         assertInput(inputs.get(5), "unpinned1_key", false, SpecParameterTestEntity.UNPINNNED1_KEY);
         assertInput(inputs.get(6), "unpinned2_key", false, SpecParameterTestEntity.UNPINNNED2_KEY);
     }

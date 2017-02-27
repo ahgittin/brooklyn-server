@@ -25,12 +25,12 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.brooklyn.api.entity.Entity;
-import org.apache.brooklyn.api.entity.EntityLocal;
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.entity.Group;
 import org.apache.brooklyn.core.BrooklynFeatureEnablement;
 import org.apache.brooklyn.core.entity.AbstractEntity;
 import org.apache.brooklyn.core.entity.Entities;
+import org.apache.brooklyn.core.entity.EntityInternal;
 import org.apache.brooklyn.core.entity.lifecycle.ServiceStateLogic;
 import org.apache.brooklyn.core.mgmt.internal.ManagementContextInternal;
 import org.apache.brooklyn.entity.stock.DelegateEntity;
@@ -131,19 +131,19 @@ public abstract class AbstractGroupImpl extends AbstractEntity implements Abstra
             // FIXME do not set sensors on members; possibly we don't need FIRST at all, just look at the first in MEMBERS, and take care to guarantee order there
             Entity first = getAttribute(FIRST);
             if (first == null) {
-                ((EntityLocal) member).sensors().set(FIRST_MEMBER, true);
-                ((EntityLocal) member).sensors().set(FIRST, member);
+                member.sensors().set(FIRST_MEMBER, true);
+                member.sensors().set(FIRST, member);
                 sensors().set(FIRST, member);
             } else {
                 if (first.equals(member) || first.equals(member.getAttribute(FIRST))) {
                     // do nothing (rebinding)
                 } else {
-                    ((EntityLocal) member).sensors().set(FIRST_MEMBER, false);
-                    ((EntityLocal) member).sensors().set(FIRST, first);
+                    member.sensors().set(FIRST_MEMBER, false);
+                    member.sensors().set(FIRST, first);
                 }
             }
 
-            member.addGroup((Group)getProxyIfAvailable());
+            ((EntityInternal)member).groups().add((Group)getProxyIfAvailable());
             boolean changed = addMemberInternal(member);
             if (changed) {
                 log.debug("Group {} got new member {}", this, member);
@@ -216,7 +216,7 @@ public abstract class AbstractGroupImpl extends AbstractEntity implements Abstra
             Exception errorRemoving = null;
             // suppress errors if member is being unmanaged in parallel
             try {
-                member.removeGroup((Group)getProxyIfAvailable());
+                ((EntityInternal)member).groups().remove((Group)getProxyIfAvailable());
             } catch (Exception e) {
                 Exceptions.propagateIfFatal(e);
                 errorRemoving = e;

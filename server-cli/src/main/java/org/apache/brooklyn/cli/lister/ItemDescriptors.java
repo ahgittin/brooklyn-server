@@ -181,10 +181,9 @@ public class ItemDescriptors {
         return resolver.getPrefix();
     }
     
-    @SuppressWarnings({ "rawtypes", "unchecked" }) 
-    public static Map<String, Object> toItemDescriptor(BrooklynCatalog catalog, CatalogItem item, boolean headingsOnly) {
+    public static Map<String, Object> toItemDescriptor(BrooklynCatalog catalog, CatalogItem<?, ?> item, boolean headingsOnly) {
         Map<String,Object> itemDescriptor = MutableMap.of();
-        AbstractBrooklynObjectSpec<?,?> spec = catalog.createSpec(item);
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
         List<EntityConfigSummary> config = new ArrayList<>();
 
         if (item.getDisplayName() != null) {
@@ -211,7 +210,7 @@ public class ItemDescriptors {
                 }
 
                 EntityConfigSummary entityConfigSummary = EntityTransformer.entityConfigSummary(param.getConfigKey(),
-                    param.getLabel(), priority, MutableMap.<String,URI>of());
+                    param.getLabel(), priority, param.isPinned(), MutableMap.<String,URI>of());
                 config.add(entityConfigSummary);
             }
             itemDescriptor.put("config", config);

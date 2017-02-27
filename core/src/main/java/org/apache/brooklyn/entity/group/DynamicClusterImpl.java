@@ -30,10 +30,12 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import javax.annotation.Nullable;
 
+import org.apache.brooklyn.api.effector.Effector;
 import org.apache.brooklyn.api.entity.Entity;
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.entity.Group;
@@ -48,8 +50,6 @@ import org.apache.brooklyn.core.config.render.RendererHints;
 import org.apache.brooklyn.core.effector.Effectors;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.entity.EntityPredicates;
-import org.apache.brooklyn.core.entity.factory.EntityFactory;
-import org.apache.brooklyn.core.entity.factory.EntityFactoryForLocation;
 import org.apache.brooklyn.core.entity.lifecycle.Lifecycle;
 import org.apache.brooklyn.core.entity.lifecycle.ServiceStateLogic;
 import org.apache.brooklyn.core.entity.lifecycle.ServiceStateLogic.ServiceProblemsLogic;
@@ -72,6 +72,7 @@ import org.apache.brooklyn.util.core.task.Tasks;
 import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.exceptions.ReferenceWithError;
 import org.apache.brooklyn.util.guava.Maybe;
+import org.apache.brooklyn.util.guava.Suppliers;
 import org.apache.brooklyn.util.javalang.JavaClassNames;
 import org.apache.brooklyn.util.javalang.Reflections;
 import org.apache.brooklyn.util.text.StringPredicates;
@@ -97,15 +98,25 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.reflect.TypeToken;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 
 /**
  * A cluster of entities that can dynamically increase or decrease the number of entities.
  */
 public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicCluster {
 
+    private static final Logger LOG = LoggerFactory.getLogger(DynamicClusterImpl.class);
+
     @SuppressWarnings("serial")
     private static final AttributeSensor<Supplier<Integer>> NEXT_CLUSTER_MEMBER_ID = Sensors.newSensor(new TypeToken<Supplier<Integer>>() {},
             "next.cluster.member.id", "Returns the ID number of the next member to be added");
+
+    /**
+     * Controls the maximum number of effector invocations the cluster will make on members at once.
+     * Only used if {@link #MAX_CONCURRENT_CHILD_COMMANDS} is configured.
+     */
+    private transient Semaphore childTaskSemaphore;
 
     private volatile FunctionFeed clusterOneAndAllMembersUp;
 
@@ -141,9 +152,6 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         RendererHints.register(FIRST, RendererHints.namedActionWithUrl("Open", DelegateEntity.EntityUrl.entityUrl()));
         RendererHints.register(CLUSTER, RendererHints.namedActionWithUrl("Open", DelegateEntity.EntityUrl.entityUrl()));
     }
-
-
-    private static final Logger LOG = LoggerFactory.getLogger(DynamicClusterImpl.class);
 
     /**
      * Mutex for synchronizing during re-size operations.
@@ -192,6 +200,9 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         }
     }
 
+    // Unused as of Brooklyn 0.10.0 but kept to maintain persistence backwards compatibility
+    // when rebinding NEXT_CLUSTER_MEMBER_ID.
+    @Deprecated
     private static class NextClusterMemberIdSupplier implements Supplier<Integer> {
         private AtomicInteger nextId = new AtomicInteger(0);
 
@@ -208,13 +219,31 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
     public void init() {
         super.init();
         initialiseMemberId();
+        initialiseTaskPermitSemaphore();
         connectAllMembersUp();
+    }
+
+    @Override
+    public void rebind() {
+        super.rebind();
+        initialiseTaskPermitSemaphore();
     }
 
     private void initialiseMemberId() {
         synchronized (mutex) {
             if (sensors().get(NEXT_CLUSTER_MEMBER_ID) == null) {
-                sensors().set(NEXT_CLUSTER_MEMBER_ID, new NextClusterMemberIdSupplier());
+                sensors().set(NEXT_CLUSTER_MEMBER_ID, Suppliers.incrementing());
+            }
+        }
+    }
+
+    private void initialiseTaskPermitSemaphore() {
+        synchronized (mutex) {
+            if (getChildTaskSemaphore() == null) {
+                Integer maxChildTasks = config().get(MAX_CONCURRENT_CHILD_COMMANDS);
+                if (maxChildTasks != null && maxChildTasks > 0) {
+                    childTaskSemaphore = new Semaphore(maxChildTasks);
+                }
             }
         }
     }
@@ -305,22 +334,9 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         return getConfig(MEMBER_SPEC);
     }
 
-    /** @deprecated since 0.7.0; use {@link #getMemberSpec()} */
-    @Deprecated
-    protected EntityFactory<?> getFactory() {
-        return getConfig(FACTORY);
-    }
-
     @Override
     public void setMemberSpec(EntitySpec<?> memberSpec) {
         setConfigEvenIfOwned(MEMBER_SPEC, memberSpec);
-    }
-
-    /** @deprecated since 0.7.0; use {@link #setMemberSpec(EntitySpec)} */
-    @Deprecated
-    @Override
-    public void setFactory(EntityFactory<?> factory) {
-        setConfigEvenIfOwned(FACTORY, factory);
     }
 
     private Location getLocation(boolean required) {
@@ -547,8 +563,9 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
                 Iterables.filter(getChildren(), Predicates.and(Predicates.instanceOf(Startable.class), EntityPredicates.isManaged()))));
         } else if ("parallel".equalsIgnoreCase(mode)) {
             ServiceStateLogic.setExpectedState(this, Lifecycle.STARTING);
-            DynamicTasks.queue(Effectors.invocationParallel(Startable.RESTART, null, 
-                Iterables.filter(getChildren(), Predicates.and(Predicates.instanceOf(Startable.class), EntityPredicates.isManaged()))));
+            for (Entity member : Iterables.filter(getChildren(), Predicates.and(Predicates.instanceOf(Startable.class), EntityPredicates.isManaged()))) {
+                DynamicTasks.queue(newThrottledEffectorTask(member, Startable.RESTART, Collections.emptyMap()));
+            }
         } else {
             throw new IllegalArgumentException("Unknown "+RESTART_MODE.getName()+" '"+mode+"'");
         }
@@ -783,7 +800,13 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         Collection<Entity> removedEntities = pickAndRemoveMembers(delta * -1);
 
         // FIXME symmetry in order of added as child, managed, started, and added to group
-        Task<?> invoke = Entities.invokeEffector(this, (Iterable<Entity>)(Iterable<?>)Iterables.filter(removedEntities, Startable.class), Startable.STOP, Collections.<String,Object>emptyMap());
+        final Iterable<Entity> removedStartables = (Iterable<Entity>) (Iterable<?>) Iterables.filter(removedEntities, Startable.class);
+        ImmutableList.Builder<Task<?>> tasks = ImmutableList.builder();
+        for (Entity member : removedStartables) {
+            tasks.add(newThrottledEffectorTask(member, Startable.STOP, Collections.emptyMap()));
+        }
+        Task<?> invoke = Tasks.parallel(tasks.build());
+        DynamicTasks.queueIfPossible(invoke).orSubmitAsync();
         try {
             invoke.get();
             return removedEntities;
@@ -821,8 +844,11 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
             addedEntities.add(entity);
             addedEntityLocations.put(entity, loc);
             if (entity instanceof Startable) {
+                // First members are used when subsequent members need some attributes from them
+                // before they start; make sure they're in the first batch.
+                boolean privileged = Boolean.TRUE.equals(entity.sensors().get(AbstractGroup.FIRST_MEMBER));
                 Map<String, ?> args = ImmutableMap.of("locations", MutableList.builder().addIfNotNull(loc).buildImmutable());
-                Task<Void> task = Effectors.invocation(entity, Startable.START, args).asTask();
+                Task<?> task = newThrottledEffectorTask(entity, Startable.START, args, privileged);
                 tasks.put(entity, task);
             }
         }
@@ -953,24 +979,12 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         if (getMembers().isEmpty()) memberSpec = getFirstMemberSpec();
         if (memberSpec == null) memberSpec = getMemberSpec();
         
-        if (memberSpec != null) {
-            EntitySpec<?> specConfigured = EntitySpec.create(memberSpec).configure(flags);
-            if (loc!=null) specConfigured.location(loc);
-            return addChild(specConfigured);
+        if (memberSpec == null) {
+            throw new IllegalStateException("No member spec supplied for dynamic cluster "+this);
         }
-
-        EntityFactory<?> factory = getFactory();
-        if (factory == null) {
-            throw new IllegalStateException("No member spec nor entity factory supplied for dynamic cluster "+this);
-        }
-        EntityFactory<?> factoryToUse = (factory instanceof EntityFactoryForLocation) ? ((EntityFactoryForLocation<?>) factory).newFactoryForLocation(loc) : factory;
-        Entity entity = factoryToUse.newEntity(flags, this);
-        if (entity==null) {
-            throw new IllegalStateException("EntityFactory factory routine returned null entity, in "+this);
-        }
-        if (entity.getParent()==null) entity.setParent(this);
-
-        return entity;
+        EntitySpec<?> specConfigured = EntitySpec.create(memberSpec).configure(flags);
+        if (loc!=null) specConfigured.location(loc);
+        return addChild(specConfigured);
     }
 
     protected List<Entity> pickAndRemoveMembers(int delta) {
@@ -1036,14 +1050,116 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
 
     protected void stopAndRemoveNode(Entity member) {
         removeMember(member);
-
         try {
             if (member instanceof Startable) {
-                Task<?> task = member.invoke(Startable.STOP, Collections.<String,Object>emptyMap());
+                Task<?> task = newThrottledEffectorTask(member, Startable.STOP, Collections.<String, Object>emptyMap());
+                DynamicTasks.queueIfPossible(task).orSubmitAsync();
                 task.getUnchecked();
             }
         } finally {
             Entities.unmanage(member);
         }
     }
+
+    @Nullable
+    protected Semaphore getChildTaskSemaphore() {
+        return childTaskSemaphore;
+    }
+
+    /**
+     * @return An unprivileged effector task.
+     * @see #newThrottledEffectorTask(Entity, Effector, Map, boolean)
+     */
+    protected <T> Task<?> newThrottledEffectorTask(Entity target, Effector<T> effector, Map<?, ?> arguments) {
+        return newThrottledEffectorTask(target, effector, arguments, false);
+    }
+
+    /**
+     * Creates tasks that obtain permits from {@link #childTaskSemaphore} before invoking <code>effector</code>
+     * on <code>target</code>. Permits are released in a {@link ListenableFuture#addListener listener}. No
+     * permits are obtained if {@link #childTaskSemaphore} is <code>null</code>.
+     * @param target Entity to invoke effector on
+     * @param effector Effector to invoke on target
+     * @param arguments Effector arguments
+     * @param isPrivileged If true the method obtains a permit from {@link #childTaskSemaphore}
+     *                     immediately and returns the effector invocation task, otherwise it
+     *                     returns a task that sequentially obtains a permit then runs the effector.
+     * @return An unsubmitted task.
+     */
+    protected <T> Task<?> newThrottledEffectorTask(Entity target, Effector<T> effector, Map<?, ?> arguments, boolean isPrivileged) {
+        final Task<?> toSubmit;
+        final Task<T> effectorTask = Effectors.invocation(target, effector, arguments).asTask();
+        if (getChildTaskSemaphore() != null) {
+            // permitObtained communicates to the release task whether the permit should really be released
+            // or not. ObtainPermit sets it to true when a permit is acquired.
+            final AtomicBoolean permitObtained = new AtomicBoolean();
+            final String description = "Waiting for permit to run " + effector.getName() + " on " + target;
+            final Runnable obtain = new ObtainPermit(getChildTaskSemaphore(), description, permitObtained);
+            // Acquire the permit now for the privileged task and just queue the effector invocation.
+            // If it's unprivileged then queue a task to obtain a permit first.
+            if (isPrivileged) {
+                obtain.run();
+                toSubmit = effectorTask;
+            } else {
+                Task<?> obtainMutex = Tasks.builder()
+                        .description(description)
+                        .body(new ObtainPermit(getChildTaskSemaphore(), description, permitObtained))
+                        .build();
+                toSubmit = Tasks.sequential(
+                        "Waiting for permit then running " + effector.getName() + " on " + target,
+                        obtainMutex, effectorTask);
+            }
+            toSubmit.addListener(new ReleasePermit(getChildTaskSemaphore(), permitObtained), MoreExecutors.sameThreadExecutor());
+        } else {
+            toSubmit = effectorTask;
+        }
+        return toSubmit;
+    }
+
+    private static class ObtainPermit implements Runnable {
+        private final Semaphore permit;
+        private final String description;
+        private final AtomicBoolean hasObtainedPermit;
+
+        private ObtainPermit(Semaphore permit, String description, AtomicBoolean hasObtainedPermit) {
+            this.permit = permit;
+            this.description = description;
+            this.hasObtainedPermit = hasObtainedPermit;
+        }
+
+        @Override
+        public void run() {
+            String oldDetails = Tasks.setBlockingDetails(description);
+            LOG.debug("{} acquiring permit from {}", this, permit);
+            try {
+                permit.acquire();
+                hasObtainedPermit.set(true);
+            } catch (InterruptedException e) {
+                throw Exceptions.propagate(e);
+            } finally {
+                Tasks.setBlockingDetails(oldDetails);
+            }
+        }
+    }
+
+    private static class ReleasePermit implements Runnable {
+        private final Semaphore permit;
+        private final AtomicBoolean wasPermitObtained;
+
+        private ReleasePermit(Semaphore permit, AtomicBoolean wasPermitObtained) {
+            this.permit = permit;
+            this.wasPermitObtained = wasPermitObtained;
+        }
+
+        @Override
+        public void run() {
+            if (wasPermitObtained.get()) {
+                LOG.debug("{} releasing permit from {}", this, permit);
+                permit.release();
+            } else {
+                LOG.debug("{} not releasing a permit from {} because it appears one was never obtained", this, permit);
+            }
+        }
+    }
+
 }

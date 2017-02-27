@@ -19,9 +19,9 @@
 
 package org.apache.brooklyn.location.jclouds;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
-
 import javax.annotation.Nullable;
 
 import org.apache.brooklyn.api.location.LocationSpec;
@@ -48,9 +48,6 @@ import com.google.common.reflect.TypeToken;
 
 public class BailOutJcloudsLocation extends JcloudsLocation {
 
-    public static final String ERROR_MESSAGE = "early termination for test";
-    public static final RuntimeException BAIL_OUT_FOR_TESTING = new RuntimeException(ERROR_MESSAGE);
-    
     // Don't care which image; not actually provisioning
     private static final String US_EAST_IMAGE_ID = "us-east-1/ami-7d7bfc14";
 
@@ -73,15 +70,15 @@ public class BailOutJcloudsLocation extends JcloudsLocation {
     }
 
     @Override
-    public Template buildTemplate(ComputeService computeService, ConfigBag config) {
+    public Template buildTemplate(ComputeService computeService, ConfigBag config, Collection<JcloudsLocationCustomizer> customizers) {
         lastConfigBag = config;
         if (getConfig(BUILD_TEMPLATE_INTERCEPTOR) != null) {
             getConfig(BUILD_TEMPLATE_INTERCEPTOR).apply(config);
         }
         if (Boolean.TRUE.equals(getConfig(BUILD_TEMPLATE))) {
-            template = super.buildTemplate(computeService, config);
+            template = super.buildTemplate(computeService, config, customizers);
         }
-        throw new RuntimeException(BAIL_OUT_FOR_TESTING);
+        throw new BailOutException("early termination for test");
     }
 
     public Template getTemplate() {
@@ -149,9 +146,9 @@ public class BailOutJcloudsLocation extends JcloudsLocation {
     public static class CountingBailOutJcloudsLocation extends BailOutJcloudsLocation {
         int buildTemplateCount = 0;
         @Override
-        public Template buildTemplate(ComputeService computeService, ConfigBag config) {
+        public Template buildTemplate(ComputeService computeService, ConfigBag config, Collection<JcloudsLocationCustomizer> customizers) {
             buildTemplateCount++;
-            return super.buildTemplate(computeService, config);
+            return super.buildTemplate(computeService, config, customizers);
         }
     }
 
@@ -172,10 +169,10 @@ public class BailOutJcloudsLocation extends JcloudsLocation {
      */
     public static BailOutJcloudsLocation newBailOutJcloudsLocationForLiveTest(LocalManagementContext mgmt, Map<ConfigKey<?>, ?> config) {
         BrooklynProperties brooklynProperties = mgmt.getBrooklynProperties();
-        String identity = (String) brooklynProperties.get("brooklyn.location.jclouds.aws-ec2.identity");
-        if (identity == null) identity = (String) brooklynProperties.get("brooklyn.jclouds.aws-ec2.identity");
-        String credential = (String) brooklynProperties.get("brooklyn.location.jclouds.aws-ec2.credential");
-        if (credential == null) credential = (String) brooklynProperties.get("brooklyn.jclouds.aws-ec2.credential");
+        String identity = (String) brooklynProperties.getConfig("brooklyn.location.jclouds.aws-ec2.identity");
+        if (identity == null) identity = (String) brooklynProperties.getConfig("brooklyn.jclouds.aws-ec2.identity");
+        String credential = (String) brooklynProperties.getConfig("brooklyn.location.jclouds.aws-ec2.credential");
+        if (credential == null) credential = (String) brooklynProperties.getConfig("brooklyn.jclouds.aws-ec2.credential");
 
         Map<ConfigKey<?>, ?> allConfig = MutableMap.<ConfigKey<?>, Object>builder()
                 .put(CLOUD_PROVIDER, AbstractJcloudsLiveTest.AWS_EC2_PROVIDER)
@@ -189,6 +186,12 @@ public class BailOutJcloudsLocation extends JcloudsLocation {
                 .build();
 
         return newBailOutJcloudsLocation(mgmt, allConfig);
+    }
+
+    public static class BailOutException extends RuntimeException {
+        public BailOutException(String message) {
+            super(message);
+        }
     }
 
 }

@@ -41,10 +41,10 @@ import java.util.concurrent.Callable;
 import org.apache.brooklyn.api.location.Location;
 import org.apache.brooklyn.api.mgmt.TaskFactory;
 import org.apache.brooklyn.core.effector.ssh.SshEffectorTasks;
-import org.apache.brooklyn.core.entity.lifecycle.Lifecycle;
 import org.apache.brooklyn.core.location.Machines;
 import org.apache.brooklyn.location.ssh.SshMachineLocation;
 import org.apache.brooklyn.util.collections.MutableList;
+import org.apache.brooklyn.util.core.json.ShellEnvironmentSerializer;
 import org.apache.brooklyn.util.core.task.DynamicTasks;
 import org.apache.brooklyn.util.core.task.ssh.SshTasks;
 import org.apache.brooklyn.util.core.task.system.ProcessTaskWrapper;
@@ -88,11 +88,6 @@ public class TestSshCommandImpl extends TargetableTestComponentImpl implements T
         execute();
     }
 
-    private void setUpAndRunState(boolean up, Lifecycle status) {
-        sensors().set(SERVICE_UP, up);
-        setExpectedState(this, status);
-    }
-
     private static class Result {
         int exitCode;
         String stdout;
@@ -130,10 +125,14 @@ public class TestSshCommandImpl extends TargetableTestComponentImpl implements T
             final SshMachineLocation machineLocation =
                     Machines.findUniqueMachineLocation(resolveTarget().getLocations(), SshMachineLocation.class).get();
             final Duration timeout = getRequiredConfig(TIMEOUT);
+            final Duration backoffToPeriod = getRequiredConfig(BACKOFF_TO_PERIOD);
 
+            // TODO use TestFrameworkAssertions (or use Repeater in the same way as that does)?
+            // Perhaps extract a helper method in TestFrameworkAssertions, so get consistent behaviour
+            // for limitTimeTo, backoffTo, etc?
             ReferenceWithError<Boolean> result = Repeater.create("Running ssh-command tests")
                     .limitTimeTo(timeout)
-                    .every(timeout.multiply(0.1))
+                    .backoffTo((backoffToPeriod != null) ? backoffToPeriod : Duration.millis(500))
                     .until(new Callable<Boolean>() {
                         @Override
                         public Boolean call() throws Exception {
@@ -172,7 +171,8 @@ public class TestSshCommandImpl extends TargetableTestComponentImpl implements T
         String downloadUrl = getConfig(DOWNLOAD_URL);
         String command = getConfig(COMMAND);
 
-        Map<String, Object> env = getConfig(SHELL_ENVIRONMENT);
+        ShellEnvironmentSerializer envSerializer = new ShellEnvironmentSerializer(getManagementContext());
+        Map<String, String> env = envSerializer.serialize(getConfig(SHELL_ENVIRONMENT));
         if (env == null) env = ImmutableMap.of();
         
         if (isNonBlank(downloadUrl)) {
@@ -217,7 +217,7 @@ public class TestSshCommandImpl extends TargetableTestComponentImpl implements T
         support.validate();
     }
 
-    private Result executeDownloadedScript(SshMachineLocation machineLocation, String url, String scriptPath, Map<String, Object> env) {
+    private Result executeDownloadedScript(SshMachineLocation machineLocation, String url, String scriptPath, Map<String, String> env) {
 
         TaskFactory<?> install = SshTasks.installFromUrl(ImmutableMap.<String, Object>of(), machineLocation, url, scriptPath);
         DynamicTasks.queue(install);
@@ -232,7 +232,7 @@ public class TestSshCommandImpl extends TargetableTestComponentImpl implements T
         return runCommands(machineLocation, commands, env);
     }
 
-    private Result executeShellCommand(SshMachineLocation machineLocation, String command, Map<String, Object> env) {
+    private Result executeShellCommand(SshMachineLocation machineLocation, String command, Map<String, String> env) {
 
         List<String> commands = ImmutableList.<String>builder()
                 .addAll(maybeCdToRunDirCmd())
@@ -251,10 +251,10 @@ public class TestSshCommandImpl extends TargetableTestComponentImpl implements T
         }
     }
 
-    private Result runCommands(SshMachineLocation machine, List<String> commands, Map<String, Object> env) {
+    private Result runCommands(SshMachineLocation machine, List<String> commands, Map<String, String> env) {
         @SuppressWarnings({ "unchecked", "rawtypes" })
         SshEffectorTasks.SshEffectorTaskFactory<Integer> etf = SshEffectorTasks.ssh(commands.toArray(new String[]{}))
-                .environmentVariables((Map<String, String>)(Map)env)
+                .environmentVariables(env)
                 .machine(machine);
 
         ProcessTaskWrapper<Integer> job = DynamicTasks.queue(etf);

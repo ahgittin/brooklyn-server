@@ -22,7 +22,6 @@ import java.util.concurrent.Callable;
 
 import org.apache.brooklyn.api.entity.EntityLocal;
 import org.apache.brooklyn.api.mgmt.Task;
-import org.apache.brooklyn.api.mgmt.TaskAdaptable;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.effector.AddSensor;
@@ -30,7 +29,6 @@ import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.enricher.stock.Propagator;
 import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.core.task.Tasks;
-import org.apache.brooklyn.util.core.task.ValueResolver;
 import org.apache.brooklyn.util.guava.Maybe;
 import org.apache.brooklyn.util.time.Duration;
 import org.slf4j.Logger;
@@ -83,15 +81,15 @@ public class StaticSensor<T> extends AddSensor<T> {
             public T call() throws Exception {
                 Maybe<T> v = resolveValue.get();
                 if (!v.isPresent()) {
-                    log.debug(this+" not setting sensor "+sensor+"; cannot resolve "+value+" after timeout " + timeout);
+                    log.debug(this+" not setting sensor "+sensor+" on "+entity+"; cannot resolve "+value+" after timeout " + timeout);
                     return null;
                 }
-                log.debug(this+" setting sensor "+sensor+" to "+v.get());
+                log.debug(this+" setting sensor "+sensor+" to "+v.get()+" on "+entity);
                 return entity.sensors().set(sensor, v.get());
             }
         }
-        Task<T> setValue = Tasks.<T>builder().displayName("setting " + sensor).body(new SetValue()).build();
+        Task<T> setValue = Tasks.<T>builder().displayName("Setting " + sensor + " on " + entity).body(new SetValue()).build();
 
-        Entities.submit(entity, Tasks.sequential("resolving and setting " + sensor, resolveValue, setValue));
+        Entities.submit(entity, Tasks.sequential("Resolving and setting " + sensor + " on " + entity, resolveValue, setValue));
     }
 }

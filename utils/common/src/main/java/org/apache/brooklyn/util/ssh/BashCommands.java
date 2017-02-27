@@ -119,6 +119,7 @@ public class BashCommands {
 
     /** sudo to a given user and run the indicated command;
      * @deprecated since 0.7.0 semantics of this are fiddly, e.g. whether user gets their environment */
+    @Deprecated
     @Beta
     public static String sudoAsUser(String user, String command) {
         return sudoAsUserOld(user, command);
@@ -152,25 +153,32 @@ public class BashCommands {
                 commandWhoseOutputToWrite, user, file);
     }
 
-    /** some machines require a tty for sudo; brooklyn by default does not use a tty
-     * (so that it can get separate error+stdout streams); you can enable a tty as an
-     * option to every ssh command, or you can do it once and 
-     * modify the machine so that a tty is not subsequently required.
+    /**
+     * Some machines require a TTY for sudo. Brooklyn by default does not use a TTY
+     * so that it can get separate STDERR and STDOUT streams. You can enable a TTY as an
+     * option to every SSH command, or you can do it once and modify the machine so that
+     * a TTY is not subsequently required. If this task has already been executed it
+     * will try to detect the changes and do nothing.
      * <p>
-     * this command must be run with allocatePTY set as a flag to ssh.  see SshTasks.dontRequireTtyForSudo which sets that up. 
+     * This command must be run with allocatePTY set as a flag to ssh.
+     * See {@link SshTasks#dontRequireTtyForSudo(SshMachineLocation, OnFailingTask)} which sets that up. 
      * <p>
-     * (having a tty for sudo seems like another case of imaginary security which is just irritating.
-     * like water restrictions at airport security.) */
+     * Having a TTY for sudo seems like another case of imaginary security which is just irritating.
+     * Like water restrictions at airport security.
+     */
     public static String dontRequireTtyForSudo() {
         String sudoersFileName =  "/etc/sudoers";
+        String tmpSuffix = Identifiers.makeRandomLowercaseId(6); // Avoid clobbering
 
         // Visudo's quiet mode (-q) is not enabled. visudo's output is used for diagnostic purposes 
         return ifFileExistsElse0(sudoersFileName, 
-                chainGroup(
-                  sudo(format("cp %1$s %1$s.tmp", sudoersFileName)),
-                  sudo(format("sed -i.brooklyn.bak 's/.*requiretty.*/#brooklyn-removed-require-tty/' %1$s.tmp", sudoersFileName)),
-                  sudo(format("visudo -c -f %1$s.tmp", sudoersFileName)), 
-                  sudo(format("mv %1$s.tmp %1$s", sudoersFileName))));
+                alternatives(
+                    sudo(format("grep brooklyn-removed-require-tty %s", sudoersFileName)),
+                    chainGroup(
+                        sudo(format("cp %1$s %1$s.%2$s", sudoersFileName, tmpSuffix)),
+                        sudo(format("sed -i.brooklyn.bak 's/.*requiretty.*/#brooklyn-removed-require-tty/' %1$s.%2$s", sudoersFileName, tmpSuffix)),
+                        sudo(format("visudo -c -f %1$s.%2$s", sudoersFileName, tmpSuffix)),
+                        sudo(format("mv %1$s.%2$s %1$s", sudoersFileName, tmpSuffix)))));
     }
 
     /** generates ~/.ssh/id_rsa if that file does not exist */
@@ -601,14 +609,17 @@ public class BashCommands {
      */
     public static String installJava(int version) {
         Preconditions.checkArgument(version == 6 || version == 7 || version == 8, "Supported Java versions are 6, 7, or 8");
-        return installPackageOr(MutableMap.of("apt", "openjdk-" + version + "-jdk","yum", "java-1." + version + ".0-openjdk-devel"), null,
+        List<String> commands = new LinkedList<String>();
+        commands.add(installPackageOr(MutableMap.of("apt", "openjdk-" + version + "-jdk","yum", "java-1." + version + ".0-openjdk-devel"), null,
                 ifExecutableElse1("zypper", chainGroup(
                         ok(sudo("zypper --non-interactive addrepo http://download.opensuse.org/repositories/Java:/openjdk6:/Factory/SLE_11_SP3 java_sles_11")),
                         ok(sudo("zypper --non-interactive addrepo http://download.opensuse.org/repositories/Java:/openjdk6:/Factory/openSUSE_11.4 java_suse_11")),
                         ok(sudo("zypper --non-interactive addrepo http://download.opensuse.org/repositories/Java:/openjdk6:/Factory/openSUSE_12.3 java_suse_12")),
                         ok(sudo("zypper --non-interactive addrepo http://download.opensuse.org/repositories/Java:/openjdk6:/Factory/openSUSE_13.1 java_suse_13")),
                         alternatives(installPackageOrFail(MutableMap.of("zypper", "java-1_" + version + "_0-openjdk-devel"), null),
-                                installPackageOrFail(MutableMap.of("zypper", "java-1_" + version + "_0-ibm"), null)))));
+                                installPackageOrFail(MutableMap.of("zypper", "java-1_" + version + "_0-ibm"), null))))));
+        commands.add(ok(upgradeNSS()));
+        return chainGroup(commands);
     }
 
     public static String installJava6() {
@@ -646,6 +657,16 @@ public class BashCommands {
 
     public static String installJavaLatestOrWarn() {
         return alternatives(installJava8(), installJava7(), installJava6(), warn("java latest install failed, entity may subsequently fail"));
+    }
+
+    /**
+     * Returns a command which upgrades NSS on Yum based machines - Addresses https://issues.apache.org/jira/browse/BROOKLYN-320
+     * @return command
+     */
+    public static String upgradeNSS(){
+        return chainGroup(
+                "which yum",
+                sudo("yum -y upgrade nss"));
     }
 
     /** cats the given text to the given command, using bash << multi-line input syntax */

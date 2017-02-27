@@ -31,7 +31,7 @@
     <parent>
         <groupId>org.apache.brooklyn</groupId>
         <artifactId>brooklyn-parent</artifactId>
-        <version>0.10.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
+        <version>0.11.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
         <relativePath>../parent/pom.xml</relativePath>
     </parent>
 
@@ -92,10 +92,6 @@
         <dependency>
             <groupId>org.apache.felix</groupId>
             <artifactId>org.apache.felix.framework</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.googlecode.concurrentlinkedhashmap</groupId>
-            <artifactId>concurrentlinkedhashmap-lru</artifactId>
         </dependency>
         <dependency>
             <groupId>org.eclipse.jetty</groupId>
@@ -271,6 +267,15 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.rat</groupId>
+                <artifactId>apache-rat-plugin</artifactId>
+                <configuration>
+                    <excludes combine.children="append">
+                        <exclude>**/src/test/resources/orphaned-locations-test-data/**</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>

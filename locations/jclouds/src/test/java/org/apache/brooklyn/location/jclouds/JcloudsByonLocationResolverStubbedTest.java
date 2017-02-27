@@ -33,7 +33,6 @@ import org.apache.brooklyn.core.test.entity.LocalManagementContextForTests;
 import org.apache.brooklyn.location.byon.FixedListMachineProvisioningLocation;
 import org.apache.brooklyn.location.jclouds.StubbedComputeServiceRegistry.AbstractNodeCreator;
 import org.apache.brooklyn.location.jclouds.StubbedComputeServiceRegistry.NodeCreator;
-import org.jclouds.compute.domain.ComputeMetadata;
 import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.compute.domain.NodeMetadata.Status;
 import org.jclouds.compute.domain.NodeMetadataBuilder;
@@ -41,6 +40,7 @@ import org.jclouds.compute.domain.Template;
 import org.jclouds.domain.LoginCredentials;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import com.google.common.base.Predicate;
@@ -49,7 +49,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
-public class JcloudsByonLocationResolverStubbedTest extends AbstractJcloudsStubbedLiveTest {
+public class JcloudsByonLocationResolverStubbedTest extends AbstractJcloudsStubbedUnitTest {
 
     @SuppressWarnings("unused")
     private static final Logger log = LoggerFactory.getLogger(JcloudsByonLocationResolverStubbedTest.class);
@@ -57,7 +57,15 @@ public class JcloudsByonLocationResolverStubbedTest extends AbstractJcloudsStubb
     private final String nodeId = "mynodeid";
     private final String nodePublicAddress = "173.194.32.123";
     private final String nodePrivateAddress = "172.168.10.11";
+
+    @BeforeMethod(alwaysRun=true)
+    @Override
+    public void setUp() throws Exception {
+        super.setUp();
+        initNodeCreatorAndJcloudsLocation(newNodeCreator(), ImmutableMap.of());
+    }
     
+    @Override
     protected LocalManagementContext newManagementContext() {
         // This really is stubbed; no live access to the cloud
         LocalManagementContext result = LocalManagementContextForTests.builder(true).build();
@@ -72,7 +80,7 @@ public class JcloudsByonLocationResolverStubbedTest extends AbstractJcloudsStubb
     protected NodeCreator newNodeCreator() {
         return new AbstractNodeCreator() {
             @Override
-            public Set<? extends NodeMetadata> listNodesDetailsMatching(Predicate<ComputeMetadata> filter) {
+            public Set<? extends NodeMetadata> listNodesDetailsMatching(Predicate<? super NodeMetadata> filter) {
                 NodeMetadata result = new NodeMetadataBuilder()
                         .id(nodeId)
                         .credentials(LoginCredentials.builder().identity("dummy").credential("dummy").build())
@@ -93,8 +101,10 @@ public class JcloudsByonLocationResolverStubbedTest extends AbstractJcloudsStubb
     @Test
     public void testResolvesHostInSpec() throws Exception {
         String spec = "jcloudsByon:(provider=\""+SOFTLAYER_PROVIDER+"\",region=\""+SOFTLAYER_AMS01_REGION_NAME+"\",user=\"myuser\",password=\"mypassword\",hosts=\""+nodeId+"\")";
-        Map<?,?> specFlags = ImmutableMap.of(JcloudsLocationConfig.COMPUTE_SERVICE_REGISTRY, computeServiceRegistry);
-
+        Map<?,?> specFlags = ImmutableMap.of(
+                JcloudsLocationConfig.COMPUTE_SERVICE_REGISTRY, computeServiceRegistry,
+                JcloudsLocation.POLL_FOR_FIRST_REACHABLE_ADDRESS, "false");
+        
         FixedListMachineProvisioningLocation<MachineLocation> location = getLocationManaged(spec, specFlags);
         
         JcloudsSshMachineLocation machine = (JcloudsSshMachineLocation) Iterables.getOnlyElement(location.getAllMachines());
@@ -126,6 +136,7 @@ public class JcloudsByonLocationResolverStubbedTest extends AbstractJcloudsStubb
         String spec = "jcloudsByon:(provider=\""+SOFTLAYER_PROVIDER+"\",region=\""+SOFTLAYER_AMS01_REGION_NAME+"\")";
         Map<?,?> specFlags = ImmutableMap.of(
                 JcloudsLocationConfig.COMPUTE_SERVICE_REGISTRY, computeServiceRegistry,
+                JcloudsLocation.POLL_FOR_FIRST_REACHABLE_ADDRESS, "false",
                 "hosts", hostsValInFlags);
 
         FixedListMachineProvisioningLocation<MachineLocation> location = getLocationManaged(spec, specFlags);
@@ -138,7 +149,9 @@ public class JcloudsByonLocationResolverStubbedTest extends AbstractJcloudsStubb
     public void testLocationSpecDoesNotCreateMachines() throws Exception {
         Collection<Location> before = managementContext.getLocationManager().getLocations();
         String spec = "jcloudsByon:(provider=\""+SOFTLAYER_PROVIDER+"\",region=\""+SOFTLAYER_AMS01_REGION_NAME+"\",user=\"myname\",hosts=\""+nodeId+"\")";
-        Map<?,?> specFlags = ImmutableMap.of(JcloudsLocationConfig.COMPUTE_SERVICE_REGISTRY, computeServiceRegistry);
+        Map<?,?> specFlags = ImmutableMap.of(
+                JcloudsLocationConfig.COMPUTE_SERVICE_REGISTRY, computeServiceRegistry,
+                JcloudsLocation.POLL_FOR_FIRST_REACHABLE_ADDRESS, "false");
 
         @SuppressWarnings("unused")
         LocationSpec<FixedListMachineProvisioningLocation<MachineLocation>> locationSpec = getLocationSpec(spec, specFlags);

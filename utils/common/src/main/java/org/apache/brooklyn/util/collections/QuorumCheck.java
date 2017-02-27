@@ -55,7 +55,7 @@ public interface QuorumCheck {
             return new NumericQuorumCheck(1, 1.0, false, "allAndAtLeastOne");
         }
         /**
-         * Requires at least one member that should be up is up.
+         * Requires at least one member that should be up.
          */
         public static QuorumCheck atLeastOne() {
             return new NumericQuorumCheck(1, 0.0, false, "atLeastOne");
@@ -162,7 +162,7 @@ public interface QuorumCheck {
         
         @Override
         public String toString() {
-            return "QuorumCheck["+(name!=null?name+";":"")+"require="+minRequiredSize+","+((int)100*minRequiredRatio)+"%"+(allowEmpty ? "|0" : "")+"]";
+            return "QuorumCheck["+(name!=null?name+";":"")+"require="+minRequiredSize+","+(100*minRequiredRatio)+"%"+(allowEmpty ? "|0" : "")+"]";
         }
     }
 

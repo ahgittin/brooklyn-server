@@ -19,18 +19,25 @@
 package org.apache.brooklyn.core.mgmt.rebind;
 
 import java.io.File;
+import java.util.Collection;
+import java.util.Map;
 
+import org.apache.brooklyn.api.entity.Application;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
+import org.apache.brooklyn.api.mgmt.ha.HighAvailabilityMode;
 import org.apache.brooklyn.api.mgmt.rebind.RebindExceptionHandler;
 import org.apache.brooklyn.api.mgmt.rebind.mementos.BrooklynMementoPersister;
 import org.apache.brooklyn.core.mgmt.persist.PersistenceObjectStore;
 
 import com.google.common.base.Function;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
 
 /**
  * See {@link RebindTestFixture#rebind(RebindOptions)} and {@link RebindTestUtils#rebind(RebindOptions)}.
  */
 public class RebindOptions {
+
     public boolean checkSerializable;
     public boolean terminateOrigManagementContext;
     public RebindExceptionHandler exceptionHandler;
@@ -41,6 +48,9 @@ public class RebindOptions {
     public Function<BrooklynMementoPersister, Void> stateTransformer;
     public ClassLoader classLoader;
     public PersistenceObjectStore objectStore;
+    public HighAvailabilityMode haMode;
+    public Function<Collection<Application>, Application> applicationChooserOnRebind;
+    public Map<?, ?> additionalProperties;
     
     public static RebindOptions create() {
         return new RebindOptions();
@@ -57,6 +67,9 @@ public class RebindOptions {
         result.stateTransformer(options.stateTransformer);
         result.classLoader(options.classLoader);
         result.objectStore(options.objectStore);
+        result.haMode(options.haMode);
+        result.applicationChooserOnRebind(options.applicationChooserOnRebind);
+        result.additionalProperties(options.additionalProperties);
         return result;
     }
     public RebindOptions checkSerializable(boolean val) {
@@ -97,6 +110,26 @@ public class RebindOptions {
     }
     public RebindOptions objectStore(PersistenceObjectStore val) {
         this.objectStore = val;
+        return this;
+    }
+    public RebindOptions haMode(HighAvailabilityMode val) {
+        this.haMode = val;
+        return this;
+    }
+    public RebindOptions applicationChooserOnRebind(Function<Collection<Application>, Application> val) {
+        this.applicationChooserOnRebind = val;
+        return this;
+    }
+    public RebindOptions applicationChooserOnRebind(final Predicate<? super Application> val) {
+        Function<Collection<Application>, Application> funcVal = new Function<Collection<Application>, Application>() {
+            @Override public Application apply(Collection<Application> input) {
+                return Iterables.find(input, val);
+            }
+        };
+        return applicationChooserOnRebind(funcVal);
+    }
+    public RebindOptions additionalProperties(Map<?, ?> additionalProperties) {
+        this.additionalProperties = additionalProperties;
         return this;
     }
 }

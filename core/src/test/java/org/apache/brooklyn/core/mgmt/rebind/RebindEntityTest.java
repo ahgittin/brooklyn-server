@@ -55,6 +55,7 @@ import org.apache.brooklyn.core.config.BasicConfigKey;
 import org.apache.brooklyn.core.entity.AbstractEntity;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.entity.EntityAsserts;
+import org.apache.brooklyn.core.entity.EntityInternal;
 import org.apache.brooklyn.core.entity.EntityPredicates;
 import org.apache.brooklyn.core.entity.trait.Resizable;
 import org.apache.brooklyn.core.entity.trait.Startable;
@@ -150,27 +151,35 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
     }
     
     @Test
-    public void testRestoresEntityDependentConfigCompleted() throws Exception {
+    public void testRestoresEntityLowLevelDependentConfigCompletedStoresValue() throws Exception {
         MyEntity origE = origApp.createAndManageChild(EntitySpec.create(MyEntity.class)
                 .configure("myconfig", DependentConfiguration.attributeWhenReady(origApp, TestApplication.MY_ATTRIBUTE)));
         origApp.sensors().set(TestApplication.MY_ATTRIBUTE, "myval");
         origE.getConfig(MyEntity.MY_CONFIG); // wait for it to be done
-        
+
+        // note it does not change; this is by design using DependentConfig (as opposed to DSL methods)
+        origApp.sensors().set(TestApplication.MY_ATTRIBUTE, "myval2");
+        assertEquals(origE.getConfig(MyEntity.MY_CONFIG), "myval");
+
         newApp = rebind();
         MyEntity newE = (MyEntity) Iterables.find(newApp.getChildren(), Predicates.instanceOf(MyEntity.class));
         assertEquals(newE.getConfig(MyEntity.MY_CONFIG), "myval");
+        
+        origApp.sensors().set(TestApplication.MY_ATTRIBUTE, "myval3");
+        assertEquals(newE.getConfig(MyEntity.MY_CONFIG), "myval");
     }
     
-    @Test(enabled=false) // not yet supported
+    @Test
     public void testRestoresEntityDependentConfigUncompleted() throws Exception {
         origApp.createAndManageChild(EntitySpec.create(MyEntity.class)
                 .configure("myconfig", DependentConfiguration.attributeWhenReady(origApp, TestApplication.MY_ATTRIBUTE)));
         
         newApp = rebind();
         MyEntity newE = (MyEntity) Iterables.find(newApp.getChildren(), Predicates.instanceOf(MyEntity.class));
+
+        // because Task is not persisted; should log a warning above
         newApp.sensors().set(TestApplication.MY_ATTRIBUTE, "myval");
-        
-        assertEquals(newE.getConfig(MyEntity.MY_CONFIG), "myval");
+        assertEquals(newE.getConfig(MyEntity.MY_CONFIG), null);
     }
     
     @Test
@@ -361,10 +370,11 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         MyLatchingEntityImpl.latching = true;
         
         // Serialize and rebind, but don't yet manage the app
-        RebindTestUtils.waitForPersisted(origApp);
+        RebindTestUtils.stopPersistence(origApp);
         RebindTestUtils.checkCurrentMementoSerializable(origApp);
         newManagementContext = RebindTestUtils.newPersistingManagementContextUnstarted(mementoDir, classLoader);
         Thread thread = new Thread() {
+            @Override
             public void run() {
                 try {
                     newManagementContext.getRebindManager().rebind(classLoader, null, ManagementNodeState.MASTER);
@@ -412,10 +422,11 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         MyLatchingEntityImpl.latching = true;
 
         // Serialize and rebind, but don't yet manage the app
-        RebindTestUtils.waitForPersisted(origApp);
+        RebindTestUtils.stopPersistence(origApp);
         RebindTestUtils.checkCurrentMementoSerializable(origApp);
         newManagementContext = new LocalManagementContext();
         Thread thread = new Thread() {
+            @Override
             public void run() {
                 try {
                     RebindTestUtils.rebind(RebindOptions.create()
@@ -548,13 +559,13 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         MyEntity origE = origApp.createAndManageChild(EntitySpec.create(MyEntity.class));
 
         assertNull(origE.getConfig(MyEntity.MY_CONFIG));
-        assertEquals(origE.getConfigRaw(MyEntity.MY_CONFIG, true).or("mydefault"), "mydefault");
+        assertEquals(((EntityInternal)origE).config().getRaw(MyEntity.MY_CONFIG).or("mydefault"), "mydefault");
         
         newApp = rebind();
         MyEntity newE = (MyEntity) Iterables.find(newApp.getChildren(), Predicates.instanceOf(MyEntity.class));
         
         assertNull(newE.getConfig(MyEntity.MY_CONFIG));
-        assertEquals(newE.getConfigRaw(MyEntity.MY_CONFIG, true).or("mydefault"), "mydefault");
+        assertEquals(((EntityInternal)newE).config().getRaw(MyEntity.MY_CONFIG).or("mydefault"), "mydefault");
     }
 
     @Test
@@ -629,7 +640,7 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
     @Test
     public void testRebindAttributeWithSpecialCharacters() throws Exception {
         String val = "abc\u001b";
-        assertEquals((int)val.charAt(3), 27); // expect that to give us unicode character 27
+        assertEquals(val.charAt(3), 27); // expect that to give us unicode character 27
         
         MyEntity origE = origApp.createAndManageChild(EntitySpec.create(MyEntity.class));
         origE.sensors().set(MyEntity.MY_SENSOR, val);
@@ -663,6 +674,7 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
     /**
      * @deprecated since 0.7; support for rebinding old-style entities is deprecated
      */
+    @Deprecated
     @Test
     public void testHandlesOldStyleEntity() throws Exception {
         MyOldStyleEntity origE = new MyOldStyleEntity(MutableMap.of("confName", "myval"), origApp);
@@ -839,10 +851,12 @@ public class RebindEntityTest extends RebindTestFixtureWithApp {
         public MyEntity2Impl() {
         }
 
+        @Override
         public List<String> getEvents() {
             return events;
         }
 
+        @Override
         public String getMyfield() {
             return myfield;
         }

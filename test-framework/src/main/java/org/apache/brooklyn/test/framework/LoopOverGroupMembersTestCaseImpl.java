@@ -20,11 +20,6 @@ package org.apache.brooklyn.test.framework;
 
 import java.util.Collection;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.Lists;
-
 import org.apache.brooklyn.api.entity.Entity;
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.entity.Group;
@@ -34,10 +29,12 @@ import org.apache.brooklyn.core.entity.Attributes;
 import org.apache.brooklyn.core.entity.lifecycle.Lifecycle;
 import org.apache.brooklyn.core.entity.trait.Startable;
 import org.apache.brooklyn.util.exceptions.Exceptions;
+import org.apache.brooklyn.util.guava.Maybe;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Created by graememiller on 11/12/2015.
- */
+import com.google.common.collect.Lists;
+
 public class LoopOverGroupMembersTestCaseImpl extends TargetableTestComponentImpl implements LoopOverGroupMembersTestCase {
 
     private static final Logger logger = LoggerFactory.getLogger(LoopOverGroupMembersTestCaseImpl.class);
@@ -47,14 +44,14 @@ public class LoopOverGroupMembersTestCaseImpl extends TargetableTestComponentImp
         // Let everyone know we're starting up (so that the GUI shows the correct icon).
         sensors().set(Attributes.SERVICE_STATE_ACTUAL, Lifecycle.STARTING);
 
-        Entity target = resolveTarget();
-        if (target == null) {
+        Maybe<Entity> target = tryResolveTarget();
+        if (!target.isPresent()) {
             logger.debug("Tasks NOT successfully run. LoopOverGroupMembersTestCaseImpl group not set");
             setServiceState(false, Lifecycle.ON_FIRE);
             return;
         }
 
-        if (!(target instanceof Group)) {
+        if (!(target.get() instanceof Group)) {
             logger.debug("Tasks NOT successfully run. LoopOverGroupMembersTestCaseImpl target is not a group");
             setServiceState(false, Lifecycle.ON_FIRE);
             return;
@@ -68,7 +65,7 @@ public class LoopOverGroupMembersTestCaseImpl extends TargetableTestComponentImp
         }
 
         // Create the child-assertions (one per group-member)
-        Group group = (Group) target;
+        Group group = (Group) target.get();
         Collection<Entity> members = group.getMembers();
         boolean allSuccesful = true;
         for (Entity member : members) {
@@ -78,7 +75,12 @@ public class LoopOverGroupMembersTestCaseImpl extends TargetableTestComponentImp
             try {
                 TargetableTestComponent targetableTestComponent = this.addChild(testSpecCopy);
                 targetableTestComponent.start(locations);
-                logger.debug("Task of {} successfully run, targetting {}", this, member);
+                if (Lifecycle.RUNNING.equals(targetableTestComponent.sensors().get(Attributes.SERVICE_STATE_ACTUAL))) {
+                    logger.debug("Task of {} successfully run, targetting {}", this, member);
+                } else {
+                    logger.warn("Problem in child test-case of {}, targetting {}", this, member);
+                    allSuccesful = false;
+                }
             } catch (Throwable t) {
                 Exceptions.propagateIfFatal(t);
                 logger.warn("Problem in child test-case of "+this+", targetting "+member, t);

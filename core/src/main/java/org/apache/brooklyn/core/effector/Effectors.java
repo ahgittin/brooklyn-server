@@ -29,7 +29,6 @@ import javax.annotation.Nullable;
 import org.apache.brooklyn.api.effector.Effector;
 import org.apache.brooklyn.api.effector.ParameterType;
 import org.apache.brooklyn.api.entity.Entity;
-import org.apache.brooklyn.api.entity.EntityLocal;
 import org.apache.brooklyn.api.mgmt.TaskAdaptable;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
@@ -64,6 +63,10 @@ public class Effectors {
         private EffectorBuilder(Class<T> returnType, String effectorName) {
             this.returnType = returnType;
             this.effectorName = effectorName;
+        }
+        public EffectorBuilder<T> name(String name) {
+            this.effectorName = name;
+            return this;
         }
         public EffectorBuilder<T> description(String description) {
             this.description = description;
@@ -129,7 +132,7 @@ public class Effectors {
         return invocation(entity, eff, parameters==null ? ImmutableMap.of() : parameters.getAllConfig());
     }
     
-    /** returns an unsubmitted task which invokes the given effector; use {@link Entities#invokeEffector(EntityLocal, Entity, Effector, Map)} for a submitted variant */
+    /** returns an unsubmitted task which invokes the given effector; use {@link Entities#invokeEffector(Entity, Entity, Effector, Map)} for a submitted variant */
     public static <T> TaskAdaptable<T> invocation(Entity entity, Effector<T> eff, @Nullable Map<?,?> parameters) {
         @SuppressWarnings("unchecked")
         Effector<T> eff2 = (Effector<T>) ((EntityInternal)entity).getEffector(eff.getName());
@@ -183,14 +186,18 @@ public class Effectors {
     public static TaskAdaptable<List<?>> invocationParallel(Effector<?> eff, Map<?,?> params, Iterable<? extends Entity> entities) {
         List<TaskAdaptable<?>> tasks = new ArrayList<TaskAdaptable<?>>();
         for (Entity e: entities) tasks.add(invocation(e, eff, params));
-        return Tasks.parallel("invoking "+eff+" on "+tasks.size()+" node"+(Strings.s(tasks.size())), tasks.toArray(new TaskAdaptable[tasks.size()]));
+        return Tasks.parallel(
+                "invoking " + eff + " on " + tasks.size() + " node" + (Strings.s(tasks.size())),
+                tasks.toArray(new TaskAdaptable[tasks.size()]));
     }
 
     /** as {@link #invocationParallel(Effector, Map, Iterable)} but executing sequentially */
     public static TaskAdaptable<List<?>> invocationSequential(Effector<?> eff, Map<?,?> params, Iterable<? extends Entity> entities) {
         List<TaskAdaptable<?>> tasks = new ArrayList<TaskAdaptable<?>>();
         for (Entity e: entities) tasks.add(invocation(e, eff, params));
-        return Tasks.sequential("invoking "+eff+" on "+tasks.size()+" node"+(Strings.s(tasks.size())), tasks.toArray(new TaskAdaptable[tasks.size()]));
+        return Tasks.sequential(
+                "invoking " + eff + " on " + tasks.size() + " node" + (Strings.s(tasks.size())),
+                tasks.toArray(new TaskAdaptable[tasks.size()]));
     }
 
     /** returns an unsubmitted task which will invoke the given effector on the given entities

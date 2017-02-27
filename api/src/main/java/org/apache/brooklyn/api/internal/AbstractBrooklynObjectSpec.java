@@ -39,14 +39,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.Beta;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 
-/** Defines a spec for creating a {@link BrooklynObject}.
+/**
+ * Defines a spec for creating a {@link BrooklynObject}.
  * <p>
  * In addition to the contract defined by the code,
  * subclasses should provide a public static <code>create(Class)</code>
@@ -54,7 +55,8 @@ import com.google.common.collect.Maps;
  * <p>
  * The spec is then passed to type-specific methods,
  * e.g. {@link EntityManager#createEntity(org.apache.brooklyn.api.entity.EntitySpec)}
- * to create a managed instance of the target type. */
+ * to create a managed instance of the target type.
+ */
 public abstract class AbstractBrooklynObjectSpec<T,SpecT extends AbstractBrooklynObjectSpec<T,SpecT>> implements Serializable {
 
     private static final long serialVersionUID = 3010955277740333030L;
@@ -83,7 +85,7 @@ public abstract class AbstractBrooklynObjectSpec<T,SpecT extends AbstractBrookly
 
     @Override
     public String toString() {
-        return Objects.toStringHelper(this).omitNullValues()
+        return MoreObjects.toStringHelper(this).omitNullValues()
                 .add("type", type)
                 .add("displayName", displayName)
                 .toString();
@@ -134,7 +136,7 @@ public abstract class AbstractBrooklynObjectSpec<T,SpecT extends AbstractBrookly
         Iterables.addAll(this.tags, tagsToReplace);
         return self();
     }
-    
+
     // TODO which semantics are correct? replace has been the behaviour;
     // add breaks tests and adds unwanted parameters,
     // but replacing will cause some desired parameters to be lost.
@@ -145,25 +147,29 @@ public abstract class AbstractBrooklynObjectSpec<T,SpecT extends AbstractBrookly
     // it is a CatalogConfig or merely a config key, maybe introducing displayable, or even priority 
     // (but note part of the reason for CatalogConfig.priority is that java reflection doesn't preserve field order) .
     // see also comments on the camp SpecParameterResolver.
+    
+    // probably the thing to do is deprecate the ambiguous method in favour of an explicit
     @Beta
-    public SpecT parameters(List<? extends SpecParameter<?>> parameters) {
+    public SpecT parameters(Iterable<? extends SpecParameter<?>> parameters) {
         return parametersReplace(parameters);
     }
-    /** adds the given parameters */
+    /** adds the given parameters, new ones first so they dominate subsequent ones */
     @Beta
-    public SpecT parametersAdd(List<? extends SpecParameter<?>> parameters) {
+    public SpecT parametersAdd(Iterable<? extends SpecParameter<?>> parameters) {
         // parameters follows immutable pattern, unlike the other fields
-        Builder<SpecParameter<?>> result = ImmutableList.<SpecParameter<?>>builder();
-        if (this.parameters!=null)
-            result.addAll(this.parameters);
-        result.addAll( checkNotNull(parameters, "parameters") );
-        this.parameters = result.build();
-        return self();
+        Set<SpecParameter<?>> params = MutableSet.<SpecParameter<?>>copyOf(parameters);
+        Set<SpecParameter<?>> current = MutableSet.<SpecParameter<?>>copyOf(this.parameters);
+        current.removeAll(params);
+
+        return parametersReplace(ImmutableList.<SpecParameter<?>>builder()
+                .addAll(params)
+                .addAll(current)
+                .build());
     }
     /** replaces parameters with the given */
     @Beta
-    public SpecT parametersReplace(List<? extends SpecParameter<?>> parameters) {
-        this.parameters = ImmutableList.copyOf( checkNotNull(parameters, "parameters") );
+    public SpecT parametersReplace(Iterable<? extends SpecParameter<?>> parameters) {
+        this.parameters = ImmutableList.copyOf(checkNotNull(parameters, "parameters"));
         return self();
     }
 
@@ -302,12 +308,12 @@ public abstract class AbstractBrooklynObjectSpec<T,SpecT extends AbstractBrookly
     }
 
     public <V> SpecT removeConfig(ConfigKey<V> key) {
-        config.remove( checkNotNull(key, "key") );
+        config.remove(checkNotNull(key, "key"));
         return self();
     }
 
     public <V> SpecT removeFlag(String key) {
-        flags.remove( checkNotNull(key, "key") );
+        flags.remove(checkNotNull(key, "key"));
         return self();
     }
 
@@ -323,7 +329,7 @@ public abstract class AbstractBrooklynObjectSpec<T,SpecT extends AbstractBrookly
     public Map<String, ?> getFlags() {
         return Collections.unmodifiableMap(flags);
     }
-    
+
     /**
      * @return Read-only configuration values
      */

@@ -20,18 +20,18 @@ package org.apache.brooklyn.test.framework;
 
 import java.util.Collection;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.Lists;
-
 import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.location.Location;
 import org.apache.brooklyn.core.entity.Attributes;
 import org.apache.brooklyn.core.entity.lifecycle.Lifecycle;
 import org.apache.brooklyn.core.entity.lifecycle.ServiceStateLogic;
 import org.apache.brooklyn.core.entity.trait.Startable;
 import org.apache.brooklyn.util.exceptions.Exceptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.Lists;
 
 /**
  * {@inheritDoc}
@@ -43,6 +43,7 @@ public class TestCaseImpl extends TargetableTestComponentImpl implements TestCas
     /**
      * {@inheritDoc}
      */
+    @Override
     public void start(Collection<? extends Location> locations) {
         ServiceStateLogic.setExpectedState(this, Lifecycle.STARTING);
         try {
@@ -55,6 +56,13 @@ public class TestCaseImpl extends TargetableTestComponentImpl implements TestCas
             sensors().set(Attributes.SERVICE_UP, true);
             ServiceStateLogic.setExpectedState(this, Lifecycle.RUNNING);
         } catch (Throwable t) {
+            Exceptions.propagateIfInterrupt(t);
+            try {
+                execOnErrorSpec();
+            } catch (Throwable t2) {
+                LOG.error("Problem executing on-error for "+this, t2);
+                Exceptions.propagateIfInterrupt(t2);
+            }
             sensors().set(Attributes.SERVICE_UP, false);
             ServiceStateLogic.setExpectedState(this, Lifecycle.ON_FIRE);
             throw Exceptions.propagate(t);
@@ -64,6 +72,7 @@ public class TestCaseImpl extends TargetableTestComponentImpl implements TestCas
     /**
      * {@inheritDoc}
      */
+    @Override
     public void stop() {
         ServiceStateLogic.setExpectedState(this, Lifecycle.STOPPING);
         sensors().set(Attributes.SERVICE_UP, false);
@@ -81,9 +90,23 @@ public class TestCaseImpl extends TargetableTestComponentImpl implements TestCas
     /**
      * {@inheritDoc}
      */
+    @Override
     public void restart() {
         final Collection<Location> locations = Lists.newArrayList(getLocations());
         stop();
         start(locations);
+    }
+
+    protected void execOnErrorSpec() {
+        EntitySpec<?> onErrorSpec = config().get(ON_ERROR_SPEC);
+        if (onErrorSpec != null) {
+            LOG.info("Creating and starting on-error child entity {} for {}", onErrorSpec.getType().getSimpleName(), this);
+            Entity onErrorEntity = addChild(onErrorSpec);
+            if (onErrorEntity instanceof Startable){
+                ((Startable) onErrorEntity).start(getLocations());
+            }
+        } else {
+            LOG.debug("No on-error spec for {}", this);
+        }
     }
 }

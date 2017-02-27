@@ -19,9 +19,9 @@
 package org.apache.brooklyn.rest.transform;
 
 import java.net.URI;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.brooklyn.api.catalog.CatalogItem;
 import org.apache.brooklyn.api.catalog.CatalogItem.CatalogItemType;
@@ -78,12 +78,13 @@ public class CatalogTransformer {
         EntitySpec<?> spec = null;
 
         try {
-            spec = (EntitySpec<?>) b.getCatalog().createSpec((CatalogItem) item);
+            spec = (EntitySpec<?>) b.getCatalog().peekSpec(item);
             EntityDynamicType typeMap = BrooklynTypes.getDefinedEntityType(spec.getType());
             EntityType type = typeMap.getSnapshot();
 
+            AtomicInteger paramPriorityCnt = new AtomicInteger();
             for (SpecParameter<?> input: spec.getParameters())
-                config.add(EntityTransformer.entityConfigSummary(input));
+                config.add(EntityTransformer.entityConfigSummary(input, paramPriorityCnt));
             for (Sensor<?> x: type.getSensors())
                 sensors.add(SensorTransformer.sensorSummaryForCatalog(x));
             for (Effector<?> x: type.getEffectors())
@@ -102,7 +103,7 @@ public class CatalogTransformer {
         }
         
         return new CatalogEntitySummary(item.getSymbolicName(), item.getVersion(), item.getDisplayName(),
-            item.getJavaType(), item.getPlanYaml(),
+            item.getJavaType(), item.getCatalogItemType().toString(), item.getPlanYaml(),
             item.getDescription(), tidyIconLink(b, item, item.getIconUrl(), ub),
             makeTags(spec, item), config, sensors, effectors,
             item.isDeprecated(), makeLinks(item, ub));
@@ -127,14 +128,14 @@ public class CatalogTransformer {
             log.warn("Invalid item in catalog when converting REST summaries (supplying generic item), at "+item+": "+e, e);
         }
         return new CatalogItemSummary(item.getSymbolicName(), item.getVersion(), item.getDisplayName(),
-            item.getJavaType(), item.getPlanYaml(),
+            item.getJavaType(), item.getCatalogItemType().toString(), item.getPlanYaml(),
             item.getDescription(), tidyIconLink(b, item, item.getIconUrl(), ub), item.tags().getTags(), item.isDeprecated(), makeLinks(item, ub));
     }
 
     public static CatalogPolicySummary catalogPolicySummary(BrooklynRestResourceUtils b, CatalogItem<? extends Policy,PolicySpec<?>> item, UriBuilder ub) {
         final Set<PolicyConfigSummary> config = Sets.newLinkedHashSet();
         try{
-            final PolicySpec<?> spec = (PolicySpec<?>) b.getCatalog().createSpec((CatalogItem) item);
+            final PolicySpec<?> spec = (PolicySpec<?>) b.getCatalog().peekSpec(item);
             for (final SpecParameter<?> input : spec.getParameters()){
                 config.add(EntityTransformer.policyConfigSummary(input));
             }
@@ -143,7 +144,7 @@ public class CatalogTransformer {
             log.trace("Unable to create policy spec for "+item+": "+e, e);
         }
         return new CatalogPolicySummary(item.getSymbolicName(), item.getVersion(), item.getDisplayName(),
-                item.getJavaType(), item.getPlanYaml(),
+                item.getJavaType(), item.getCatalogItemType().toString(), item.getPlanYaml(),
                 item.getDescription(), tidyIconLink(b, item, item.getIconUrl(), ub), config,
                 item.tags().getTags(), item.isDeprecated(), makeLinks(item, ub));
     }
@@ -151,7 +152,7 @@ public class CatalogTransformer {
     public static CatalogLocationSummary catalogLocationSummary(BrooklynRestResourceUtils b, CatalogItem<? extends Location,LocationSpec<?>> item, UriBuilder ub) {
         Set<LocationConfigSummary> config = ImmutableSet.of();
         return new CatalogLocationSummary(item.getSymbolicName(), item.getVersion(), item.getDisplayName(),
-                item.getJavaType(), item.getPlanYaml(),
+                item.getJavaType(), item.getCatalogItemType().toString(), item.getPlanYaml(),
                 item.getDescription(), tidyIconLink(b, item, item.getIconUrl(), ub), config,
                 item.tags().getTags(), item.isDeprecated(), makeLinks(item, ub));
     }

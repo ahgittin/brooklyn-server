@@ -68,13 +68,14 @@ public final class BrooklynClassLoadingContextSequential extends AbstractBrookly
         this.secondaries.add( target );
     }
     
+    @Override
     public Maybe<Class<?>> tryLoadClass(String className) {
         List<Throwable> errors = MutableList.of();
         for (BrooklynClassLoadingContext target: primaries) {
             Maybe<Class<?>> clazz = target.tryLoadClass(className);
             if (clazz.isPresent())
                 return clazz;
-            errors.add( ((Maybe.Absent<?>)clazz).getException() );
+            errors.add( Maybe.getException(clazz) );
         }
         boolean noPrimaryErrors = errors.isEmpty();
         for (BrooklynClassLoadingContext target: secondaries) {
@@ -82,7 +83,7 @@ public final class BrooklynClassLoadingContextSequential extends AbstractBrookly
             if (clazz.isPresent())
                 return clazz;
             if (noPrimaryErrors)
-                errors.add( ((Maybe.Absent<?>)clazz).getException() );
+                errors.add( Maybe.getException(clazz) );
         }
 
         return Maybe.absent(Exceptions.create("Unable to load "+className+" from "+primaries, errors));

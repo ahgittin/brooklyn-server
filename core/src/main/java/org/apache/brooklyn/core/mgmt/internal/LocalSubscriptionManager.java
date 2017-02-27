@@ -21,12 +21,12 @@ package org.apache.brooklyn.core.mgmt.internal;
 import static org.apache.brooklyn.util.JavaGroovyEquivalents.elvis;
 import static org.apache.brooklyn.util.JavaGroovyEquivalents.groovyTruth;
 import static org.apache.brooklyn.util.JavaGroovyEquivalents.join;
-import static org.apache.brooklyn.util.JavaGroovyEquivalents.mapOf;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,17 +42,21 @@ import org.apache.brooklyn.api.sensor.Sensor;
 import org.apache.brooklyn.api.sensor.SensorEvent;
 import org.apache.brooklyn.api.sensor.SensorEventListener;
 import org.apache.brooklyn.core.entity.Entities;
+import org.apache.brooklyn.core.mgmt.BrooklynTaskTags;
 import org.apache.brooklyn.core.sensor.BasicSensorEvent;
+import org.apache.brooklyn.util.collections.MutableList;
 import org.apache.brooklyn.util.collections.MutableMap;
 import org.apache.brooklyn.util.core.task.BasicExecutionManager;
 import org.apache.brooklyn.util.core.task.SingleThreadedScheduler;
 import org.apache.brooklyn.util.text.Identifiers;
+import org.apache.brooklyn.util.text.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Predicate;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Multimaps;
 
 /**
@@ -84,25 +88,35 @@ public class LocalSubscriptionManager extends AbstractSubscriptionManager {
         return allSubscriptions.size();
     }
 
+    /** The total number of sensor change events generated (irrespective of number subscribers, see {@link #getTotalEventsDelivered()}) */
     public long getTotalEventsPublished() {
         return totalEventsPublishedCount.get();
     }
     
+    /** The total number of sensor change events submitted for delivery, counting multiple deliveries for multipe subscribers (see {@link #getTotalEventsPublished()}),
+     * but excluding initial notifications, and incremented when submitted ie prior to delivery */
     public long getTotalEventsDelivered() {
         return totalEventsDeliveredCount.get();
     }
     
+    @Override
     @SuppressWarnings("unchecked")
     protected synchronized <T> SubscriptionHandle subscribe(Map<String, Object> flags, final Subscription<T> s) {
         Entity producer = s.producer;
         Sensor<T> sensor= s.sensor;
         s.subscriber = getSubscriber(flags, s);
+        if (flags.containsKey("tags") || flags.containsKey("tag")) {
+            Iterable<?> tags = (Iterable<?>) flags.get("tags");
+            Object tag = flags.get("tag");
+            s.subscriberExtraExecTags = (tag == null) ? tags : (tags == null ? ImmutableList.of(tag) : MutableList.builder().addAll(tags).add(tag).build());
+        }
+
         if (flags.containsKey("subscriberExecutionManagerTag")) {
             s.subscriberExecutionManagerTag = flags.remove("subscriberExecutionManagerTag");
             s.subscriberExecutionManagerTagSupplied = true;
         } else {
             s.subscriberExecutionManagerTag = 
-                s.subscriber instanceof Entity ? "subscription-delivery-entity-"+((Entity)s.subscriber).getId()+"["+s.subscriber+"]" : 
+                s.subscriber instanceof Entity ? "subscription-delivery-entity-"+((Entity)s.subscriber).getId() : 
                 s.subscriber instanceof String ? "subscription-delivery-string["+s.subscriber+"]" : 
                 "subscription-delivery-object["+s.subscriber+"]";
             s.subscriberExecutionManagerTagSupplied = false;
@@ -130,42 +144,21 @@ public class LocalSubscriptionManager extends AbstractSubscriptionManager {
                 LOG.warn("Cannot notifyOfInitialValue for subscription with non-attribute sensor: "+s);
             } else {
                 if (LOG.isTraceEnabled()) LOG.trace("sending initial value of {} -> {} to {}", new Object[] {s.producer, s.sensor, s});
-                Map<String, Object> tagsMap = MutableMap.of("tag", s.subscriberExecutionManagerTag);
-                em.submit(tagsMap, new Runnable() {
-                    @Override
-                    public String toString() {
-                        return "LSM.publishInitialValue("+s.producer+", "+s.sensor+")";
-                    }
-                    public void run() {
-                        Object val = s.producer.getAttribute((AttributeSensor<?>) s.sensor);
-                        @SuppressWarnings("rawtypes") // TODO s.listener.onEvent gives compilation error if try to use <T>
-                        SensorEvent event = new BasicSensorEvent(s.sensor, s.producer, val);
-                        if (s.eventFilter!=null && !s.eventFilter.apply(event))
-                            return;
-                        try {
-                            int count = s.eventCount.incrementAndGet();
-                            if (count > 0 && count % 1000 == 0) LOG.debug("{} events for subscriber {}", count, s);
-                            
-                            s.listener.onEvent(event);
-                        } catch (Throwable t) {
-                            if (event!=null && event.getSource()!=null && Entities.isNoLongerManaged(event.getSource())) {
-                                LOG.debug("Error processing initial-value subscription to "+LocalSubscriptionManager.this+", after entity unmanaged: "+t, t);
-                            } else {
-                                LOG.warn("Error processing initial-value subscription to "+LocalSubscriptionManager.this+": "+t, t);
-                            }
-                        }
-                    }});
+                T val = (T) s.producer.getAttribute((AttributeSensor<?>) s.sensor);
+                submitPublishEvent(s, new BasicSensorEvent<T>(s.sensor, s.producer, val), true);
             }
         }
         
         return s;
     }
 
+    @Override
     @SuppressWarnings("unchecked")
     public Set<SubscriptionHandle> getSubscriptionsForSubscriber(Object subscriber) {
         return (Set<SubscriptionHandle>) ((Set<?>) elvis(subscriptionsBySubscriber.get(subscriber), Collections.emptySet()));
     }
 
+    @Override
     public synchronized Set<SubscriptionHandle> getSubscriptionsForEntitySensor(Entity source, Sensor<?> sensor) {
         Set<SubscriptionHandle> subscriptions = new LinkedHashSet<SubscriptionHandle>();
         subscriptions.addAll(elvis(subscriptionsByToken.get(makeEntitySensorToken(source, sensor)), Collections.emptySet()));
@@ -180,6 +173,7 @@ public class LocalSubscriptionManager extends AbstractSubscriptionManager {
      *
      * @see #subscribe(Map, Entity, Sensor, SensorEventListener)
      */
+    @Override
     @SuppressWarnings("rawtypes")
     public synchronized boolean unsubscribe(SubscriptionHandle sh) {
         if (!(sh instanceof Subscription)) throw new IllegalArgumentException("Only subscription handles of type Subscription supported: sh="+sh+"; type="+(sh != null ? sh.getClass().getCanonicalName() : null));
@@ -197,6 +191,7 @@ public class LocalSubscriptionManager extends AbstractSubscriptionManager {
         return result;
     }
 
+    @Override
     @SuppressWarnings({ "unchecked", "rawtypes" })
     public <T> void publish(final SensorEvent<T> event) {
         // REVIEW 1459 - execution
@@ -218,43 +213,87 @@ public class LocalSubscriptionManager extends AbstractSubscriptionManager {
         if (groovyTruth(subs)) {
             if (LOG.isTraceEnabled()) LOG.trace("sending {}, {} to {}", new Object[] {event.getSensor().getName(), event, join(subs, ",")});
             for (Subscription s : subs) {
-                if (s.eventFilter!=null && !s.eventFilter.apply(event))
-                    continue;
-                final Subscription sAtClosureCreation = s;
-                
-//                Set<Object> tags = MutableSet.of();
-//                if (s.subscriberExecutionManagerTag!=null) tags.add(s.subscriberExecutionManagerTag);
-//                if (event.getSource()!=null) tags.add(BrooklynTaskTags.tagForContextEntity(event.getSource()));
-//                Map<String, Object> tagsMap = mapOf("tags", (Object)tags);
-                // use code above, instead of line below, if we want subscription deliveries associated with the entity;
-                // that will cause them to be cancelled when the entity is unmanaged
-                // (not sure that is useful, and likely NOT worth the expense, but it might be...) -Alex Oct 2014
-                Map<String, Object> tagsMap = mapOf("tag", s.subscriberExecutionManagerTag);
-                
-                em.submit(tagsMap, new Runnable() {
-                    @Override
-                    public String toString() {
-                        return "LSM.publish("+event+")";
-                    }
-                    public void run() {
-                        try {
-                            int count = sAtClosureCreation.eventCount.incrementAndGet();
-                            if (count > 0 && count % 1000 == 0) LOG.debug("{} events for subscriber {}", count, sAtClosureCreation);
-                            
-                            sAtClosureCreation.listener.onEvent(event);
-                        } catch (Throwable t) {
-                            if (event!=null && event.getSource()!=null && Entities.isNoLongerManaged(event.getSource())) {
-                                LOG.debug("Error processing subscriptions to "+this+", after entity unmanaged: "+t, t);
-                            } else {
-                                LOG.warn("Error processing subscriptions to "+this+": "+t, t);
-                            }
-                        }
-                    }});
+                submitPublishEvent(s, event, false);
+                // excludes initial so only do it here
                 totalEventsDeliveredCount.incrementAndGet();
             }
         }
     }
     
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private void submitPublishEvent(final Subscription s, final SensorEvent<?> event, final boolean isInitial) {
+        if (s.eventFilter!=null && !s.eventFilter.apply(event))
+            return;
+        
+        List<Object> tags = MutableList.builder()
+            .addAll(s.subscriberExtraExecTags == null ? ImmutableList.of() : s.subscriberExtraExecTags)
+            .add(s.subscriberExecutionManagerTag)
+            .add(BrooklynTaskTags.SENSOR_TAG)
+            .build()
+            .asUnmodifiable();
+        
+        StringBuilder name = new StringBuilder("sensor ");
+        StringBuilder description = new StringBuilder("Sensor ");
+        String sensorName = s.sensor==null ? "<null-sensor>" : s.sensor.getName();
+        String sourceName = event.getSource()==null ? null : event.getSource().getId();
+        if (Strings.isNonBlank(sourceName)) {
+            name.append(sourceName);
+            name.append(":");
+        }
+        name.append(sensorName);
+        
+        description.append(sensorName);
+        description.append(" on ");
+        description.append(sourceName==null ? "<null-source>" : sourceName);
+        description.append(" publishing to ");
+        description.append(s.subscriber instanceof Entity ? ((Entity)s.subscriber).getId() : s.subscriber);
+        
+        if (includeDescriptionForSensorTask(event)) {
+            name.append(" ");
+            name.append(event.getValue());
+            description.append(", value: ");
+            description.append(event.getValue());
+        }
+        Map<String, Object> execFlags = MutableMap.of("tags", tags, 
+            "displayName", name.toString(),
+            "description", description.toString());
+        
+        em.submit(execFlags, new Runnable() {
+            @Override
+            public String toString() {
+                if (isInitial) {
+                    return "LSM.publishInitial("+event+")";
+                } else {
+                    return "LSM.publish("+event+")";
+                }
+            }
+            @Override
+            public void run() {
+                try {
+                    int count = s.eventCount.incrementAndGet();
+                    if (count > 0 && count % 1000 == 0) LOG.debug("{} events for subscriber {}", count, s);
+                    
+                    s.listener.onEvent(event);
+                } catch (Throwable t) {
+                    if (event!=null && event.getSource()!=null && Entities.isNoLongerManaged(event.getSource())) {
+                        LOG.debug("Error processing subscriptions to "+this+", after entity unmanaged: "+t, t);
+                    } else {
+                        LOG.warn("Error processing subscriptions to "+this+": "+t, t);
+                    }
+                }
+            }});
+    }
+    
+    protected boolean includeDescriptionForSensorTask(SensorEvent<?> event) {
+        // just do it for simple/quick things to avoid expensive toStrings
+        // (info is rarely useful, but occasionally it will be)
+        if (event.getValue()==null) return true;
+        Class<?> clazz = event.getValue().getClass();
+        if (clazz.isEnum() || clazz.isPrimitive() || Number.class.isAssignableFrom(clazz) || 
+            clazz.equals(String.class)) return true;
+        return false;
+    }
+
     @Override
     public String toString() {
         return tostring;

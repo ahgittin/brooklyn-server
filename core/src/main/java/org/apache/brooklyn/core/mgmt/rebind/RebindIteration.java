@@ -91,6 +91,7 @@ import org.apache.brooklyn.core.objs.proxy.InternalPolicyFactory;
 import org.apache.brooklyn.core.policy.AbstractPolicy;
 import org.apache.brooklyn.util.collections.MutableList;
 import org.apache.brooklyn.util.collections.MutableMap;
+import org.apache.brooklyn.util.core.ClassLoaderUtils;
 import org.apache.brooklyn.util.core.flags.FlagUtils;
 import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.guava.Maybe;
@@ -214,7 +215,7 @@ public abstract class RebindIteration {
         
         managementContext = rebindManager.getManagementContext();
         rebindContext = new RebindContextImpl(managementContext, exceptionHandler, classLoader);
-        reflections = new Reflections(classLoader).applyClassRenames(DeserializingClassRenamesProvider.loadDeserializingClassRenames());
+        reflections = new Reflections(classLoader).applyClassRenames(DeserializingClassRenamesProvider.INSTANCE.loadDeserializingMapping());
         instantiator = new BrooklynObjectInstantiator(classLoader, rebindContext, reflections);
         
         if (mode==ManagementNodeState.HOT_STANDBY || mode==ManagementNodeState.HOT_BACKUP) {
@@ -350,7 +351,7 @@ public abstract class RebindIteration {
         // See notes in CatalogInitialization
         
         Collection<CatalogItem<?, ?>> catalogItems = rebindContext.getCatalogItems();
-        CatalogInitialization catInit = ((ManagementContextInternal)managementContext).getCatalogInitialization();
+        CatalogInitialization catInit = managementContext.getCatalogInitialization();
         catInit.applyCatalogLoadMode();
         Collection<CatalogItem<?,?>> itemsForResettingCatalog = null;
         boolean needsInitialItemsLoaded, needsAdditionalItemsLoaded;
@@ -449,7 +450,7 @@ public abstract class RebindIteration {
             if (LOG.isTraceEnabled()) LOG.trace("RebindManager instantiating entity {}", entityId);
             
             try {
-                Entity entity = (Entity) instantiator.newEntity(entityManifest);
+                Entity entity = instantiator.newEntity(entityManifest);
                 ((EntityInternal)entity).getManagementSupport().setReadOnly( rebindContext.isReadOnly(entity) );
                 rebindContext.registerEntity(entityId, entity);
 
@@ -894,7 +895,7 @@ public abstract class RebindIteration {
 
                 // TODO document the multiple sources of flags, and the reason for setting the mgmt context *and* supplying it as the flag
                 // (NB: merge reported conflict as the two things were added separately)
-                entity = (Entity) invokeConstructor(null, entityClazz, new Object[] {flags}, new Object[] {flags, null}, new Object[] {null}, new Object[0]);
+                entity = invokeConstructor(null, entityClazz, new Object[] {flags}, new Object[] {flags, null}, new Object[] {null}, new Object[0]);
 
                 // In case the constructor didn't take the Map arg, then also set it here.
                 // e.g. for top-level app instances such as WebClusterDatabaseExampleApp will (often?) not have
@@ -956,7 +957,7 @@ public abstract class RebindIteration {
             }
             
             try {
-                return new LoadedClass<T>((Class<T>)reflections.loadClass(jType), catalogItemId);
+                return new LoadedClass<T>((Class<T>)loadClass(jType), catalogItemId);
             } catch (Exception e) {
                 Exceptions.propagateIfFatal(e);
                 LOG.warn("Unable to load "+jType+" using reflections; will try standard context");
@@ -974,9 +975,27 @@ public abstract class RebindIteration {
                         return new LoadedClass<T>((Class<? extends T>) catalogClass.get(), catalogItemId);
                     }
                 }
-                throw new IllegalStateException("No catalogItemId specified for "+contextSuchAsId+" and can't load class from either classpath or catalog items");
+                throw new IllegalStateException("No catalogItemId specified for "+contextSuchAsId+" and can't load class (" + jType + ") from either classpath or catalog items");
             } else {
-                throw new IllegalStateException("No catalogItemId specified for "+contextSuchAsId+" and can't load class from classpath");
+                throw new IllegalStateException("No catalogItemId specified for "+contextSuchAsId+" and can't load class (" + jType + ") from classpath");
+            }
+        }
+
+        protected Class<?> loadClass(String jType) throws ClassNotFoundException {
+            try {
+            return reflections.loadClass(jType);
+            } catch (Exception e) {
+                Exceptions.propagateIfFatal(e);
+            }
+            return new ClassLoaderUtils(reflections.getClassLoader(), managementContext).loadClass(jType);
+        }
+
+        @SuppressWarnings("unchecked")
+        public <T> Class<? extends T> loadClass(String classname, Class<T> superType) {
+            try {
+                return (Class<? extends T>) loadClass(classname);
+            } catch (ClassNotFoundException e) {
+                throw Exceptions.propagate(e);
             }
         }
 
@@ -984,7 +1003,7 @@ public abstract class RebindIteration {
          * Constructs a new location, passing to its constructor the location id and all of memento.getFlags().
          */
         protected Location newLocation(String locationId, String locationType) {
-            Class<? extends Location> locationClazz = reflections.loadClass(locationType, Location.class);
+            Class<? extends Location> locationClazz = loadClass(locationType, Location.class);
 
             if (InternalFactory.isNewStyle(locationClazz)) {
                 // Not using loationManager.createLocation(LocationSpec) because don't want init() to be called
@@ -1006,7 +1025,7 @@ public abstract class RebindIteration {
                 // TODO Feels very hacky!
                 Map<String,?> flags = MutableMap.of("id", locationId, "deferConstructionChecks", true);
 
-                return (Location) invokeConstructor(reflections, locationClazz, new Object[] {flags});
+                return invokeConstructor(reflections, locationClazz, new Object[] {flags});
             }
             // note 'used' config keys get marked in BasicLocationRebindSupport
         }
@@ -1110,7 +1129,7 @@ public abstract class RebindIteration {
             String id = memento.getId();
             // catalog item subtypes are internal to brooklyn, not in osgi
             String itemType = checkNotNull(memento.getType(), "catalog item type of %s must not be null in memento", id);
-            Class<? extends CatalogItem> clazz = reflections.loadClass(itemType, CatalogItem.class);
+            Class<? extends CatalogItem> clazz = loadClass(itemType, CatalogItem.class);
             return invokeConstructor(reflections, clazz, new Object[]{});
         }
 

@@ -42,7 +42,11 @@ import com.google.common.reflect.TypeToken;
  * This interface should be used to access {@link Sensor} definitions.
  */
 public interface Attributes {
-    
+
+    AttributeSensor<String> ENTITY_ID = Sensors.newStringSensor("entity.id");
+    AttributeSensor<String> APPLICATION_ID = Sensors.newStringSensor("application.id");
+    AttributeSensor<String> CATALOG_ID = Sensors.newStringSensor("catalog.id");
+
     BasicNotificationSensor<Void> LOCATION_CHANGED = new BasicNotificationSensor<Void>(
             Void.class, "entity.locationChanged", "Indicates that an entity's location has been changed");
 
@@ -91,11 +95,15 @@ public interface Attributes {
             UserAndHostAndPort.class, 
             "host.winrmAddress", 
             "user@host:port for WinRM'ing (or null if inappropriate)");
-    AttributeSensor<String> SUBNET_HOSTNAME = Sensors.newStringSensor( "host.subnet.hostname", "Host name as known internally in " +
-            "the subnet where it is running (if different to host.name)");
-    AttributeSensor<String> SUBNET_ADDRESS = Sensors.newStringSensor( "host.subnet.address", "Host address as known internally in " +
-            "the subnet where it is running (if different to host.name)");
+    AttributeSensor<String> SUBNET_HOSTNAME = Sensors.newStringSensor(
+            "host.subnet.hostname",
+            "Host name as known internally in the subnet where it is running (if different to host.name)");
+    AttributeSensor<String> SUBNET_ADDRESS = Sensors.newStringSensor(
+            "host.subnet.address",
+            "Host address as known internally in the subnet where it is running (if different to host.name)");
 
+    /** @deprecated since 0.11.0 without replacement */
+    @Deprecated
     AttributeSensor<String> HOST_AND_PORT = Sensors.newStringSensor( "hostandport", "host:port" );
 
     /*
@@ -130,10 +138,6 @@ public interface Attributes {
     AttributeSensor<Lifecycle.Transition> SERVICE_STATE_EXPECTED = Sensors.newSensor(Lifecycle.Transition.class,
             "service.state.expected", "Last controlled change to service state, indicating what the expected state should be");
     
-    /** @deprecated since 0.7.0 use {@link #SERVICE_STATE_ACTUAL} or {@link #SERVICE_STATE_EXPECTED} as appropriate. */
-    @Deprecated
-    AttributeSensor<Lifecycle> SERVICE_STATE = SERVICE_STATE_ACTUAL;
-
     /*
      * Other metadata (optional)
      */
@@ -143,13 +147,19 @@ public interface Attributes {
     AttributeSensor<String> LOG_FILE_LOCATION = Sensors.newStringSensor("log.location", "Log file location");
     
     AttributeSensor<URI> MAIN_URI = MainUri.MAIN_URI;
+    AttributeSensor<URI> MAIN_URI_MAPPED_SUBNET = MainUri.MAIN_URI_MAPPED_SUBNET;
+    AttributeSensor<URI> MAIN_URI_MAPPED_PUBLIC = MainUri.MAIN_URI_MAPPED_PUBLIC;
 
- // this class is added because the MAIN_URI relies on a static initialization which unfortunately can't be added to an interface.
+    // this class is added because the MAIN_URI relies on a static initialization which unfortunately can't be added to an interface.
     class MainUri {
         private final static AttributeSensor<URI> MAIN_URI = Sensors.newSensor(URI.class, "main.uri", "Main URI for contacting the service/endpoint offered by this entity");
+        private final static AttributeSensor<URI> MAIN_URI_MAPPED_SUBNET = Sensors.newSensor(URI.class, "main.uri.mapped.subnet", "Main URI for contacting the service/endpoint offered by this entity from the same subnet");
+        private final static AttributeSensor<URI> MAIN_URI_MAPPED_PUBLIC = Sensors.newSensor(URI.class, "main.uri.mapped.public", "Main URI for contacting the service/endpoint offered by this entity from the outside world");
 
         static {
             RendererHints.register(MAIN_URI, RendererHints.namedActionWithUrl());
+            RendererHints.register(MAIN_URI_MAPPED_SUBNET, RendererHints.namedActionWithUrl());
+            RendererHints.register(MAIN_URI_MAPPED_PUBLIC, RendererHints.namedActionWithUrl());
         }
     }
 

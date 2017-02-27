@@ -33,7 +33,10 @@ import org.apache.brooklyn.config.ConfigKey.HasConfigKey;
 import org.apache.brooklyn.core.config.ConfigUtils;
 import org.apache.brooklyn.core.config.WrappedConfigKey;
 import org.apache.brooklyn.core.internal.BrooklynProperties;
+import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.exceptions.Exceptions;
+import org.apache.brooklyn.util.text.StringPredicates;
+import org.apache.brooklyn.util.text.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,20 +82,18 @@ public class ConfigUtils {
     
     public static BrooklynProperties filterFor(BrooklynProperties properties, Predicate<? super String> filter) {
         BrooklynProperties result = BrooklynProperties.Factory.newEmpty();
-        for (String k: (Collection<String>)properties.keySet()) {
-            if (filter.apply(k)) {
-                result.put(k, properties.get(k));
-            }
+        Set<ConfigKey<?>> keys = properties.findKeys(ConfigPredicates.nameSatisfies(filter));
+        for (ConfigKey<?> key : keys) {
+            result.put(key, properties.getConfig(key));
         }
         return result;
     }
     
     public static BrooklynProperties filterForPrefix(BrooklynProperties properties, String prefix) {
         BrooklynProperties result = BrooklynProperties.Factory.newEmpty();
-        for (String k: (Collection<String>)properties.keySet()) {
-            if (k.startsWith(prefix)) {
-                result.put(k, properties.get(k));
-            }
+        Set<ConfigKey<?>> keys = properties.findKeys(ConfigPredicates.nameSatisfies(StringPredicates.startsWith(prefix)));
+        for (ConfigKey<?> key : keys) {
+            result.put(key, properties.getConfig(key));
         }
         return result;
     }
@@ -125,5 +126,21 @@ public class ConfigUtils {
             }
         }
         return Collections.unmodifiableSet(result);
+    }
+
+    /**
+     * Look for keys with <code>configPrefix</code> in <code>configBag</code> and
+     * those which have <code>configPrefix</code> are added in <code>destinationBucket</code> but without <code>configPrefix</code>.
+     * @param configPrefix prefix to look for
+     * @param configBag keys to look in
+     * @param destinationBucket should not be an ImmutableMap
+     */
+    public static void addUnprefixedConfigKeyInConfigBack(String configPrefix, ConfigBag configBag, Map<String, Object> destinationBucket) {
+        for (Map.Entry<ConfigKey<?>, ?> entry : configBag.getAllConfigAsConfigKeyMap().entrySet()) {
+            String keyName = entry.getKey().getName();
+            if (keyName.startsWith(configPrefix)) {
+                destinationBucket.put(Strings.removeFromStart(keyName, configPrefix), entry.getValue());
+            }
+        }
     }
 }

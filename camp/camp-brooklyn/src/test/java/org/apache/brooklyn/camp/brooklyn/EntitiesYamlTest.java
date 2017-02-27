@@ -36,6 +36,7 @@ import org.apache.brooklyn.api.location.Location;
 import org.apache.brooklyn.api.location.LocationSpec;
 import org.apache.brooklyn.api.mgmt.Task;
 import org.apache.brooklyn.api.sensor.AttributeSensor;
+import org.apache.brooklyn.camp.CampPlatform;
 import org.apache.brooklyn.camp.brooklyn.spi.dsl.methods.BrooklynDslCommon;
 import org.apache.brooklyn.camp.brooklyn.spi.dsl.methods.DslComponent;
 import org.apache.brooklyn.camp.brooklyn.spi.dsl.methods.DslComponent.Scope;
@@ -47,6 +48,7 @@ import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.entity.EntityFunctions;
 import org.apache.brooklyn.core.entity.EntityInternal;
 import org.apache.brooklyn.core.entity.EntityPredicates;
+import org.apache.brooklyn.core.entity.StartableApplication;
 import org.apache.brooklyn.core.entity.lifecycle.Lifecycle;
 import org.apache.brooklyn.core.mgmt.internal.EntityManagerInternal;
 import org.apache.brooklyn.core.sensor.Sensors;
@@ -55,8 +57,8 @@ import org.apache.brooklyn.core.test.entity.TestEntityImpl;
 import org.apache.brooklyn.entity.group.DynamicCluster;
 import org.apache.brooklyn.entity.group.DynamicFabric;
 import org.apache.brooklyn.entity.software.base.SameServerEntity;
-import org.apache.brooklyn.entity.software.base.VanillaSoftwareProcess;
 import org.apache.brooklyn.entity.software.base.SoftwareProcessShellEnvironmentTest.EnvRecordingLocation;
+import org.apache.brooklyn.entity.software.base.VanillaSoftwareProcess;
 import org.apache.brooklyn.entity.stock.BasicEntity;
 import org.apache.brooklyn.util.collections.MutableMap;
 import org.apache.brooklyn.util.core.task.Tasks;
@@ -97,7 +99,7 @@ public class EntitiesYamlTest extends AbstractYamlTest {
         Entity entity = app.getChildren().iterator().next();
         Assert.assertTrue(entity instanceof TestEntity, "Expected TestEntity, found " + entity.getClass());
         
-        return (TestEntity)entity;
+        return entity;
     }
     
     @Test
@@ -275,7 +277,7 @@ public class EntitiesYamlTest extends AbstractYamlTest {
         TestEntity testEntity = (TestEntity) entity;
         List<String> thingList = (List<String>)testEntity.getConfig(TestEntity.CONF_LIST_THING);
         Set<String> thingSet = (Set<String>)testEntity.getConfig(TestEntity.CONF_SET_THING);
-        Map<String, String> thingMap = (Map<String, String>)testEntity.getConfig(TestEntity.CONF_MAP_THING);
+        Map<String, String> thingMap = testEntity.getConfig(TestEntity.CONF_MAP_THING);
         Assert.assertEquals(thingList, Lists.newArrayList());
         Assert.assertEquals(thingSet, ImmutableSet.of());
         Assert.assertEquals(thingMap, ImmutableMap.of());
@@ -345,6 +347,7 @@ public class EntitiesYamlTest extends AbstractYamlTest {
         Assert.assertNotNull(entities[0], "Expected app to contain child named 'testentity'");
         Assert.assertNotNull(entities[1], "Expected app to contain child named 'second entity'");
         Object object = ((EntityInternal)app).getExecutionContext().submit(MutableMap.of(), new Callable<Object>() {
+            @Override
             public Object call() {
                 return entities[1].getConfig(TestEntity.CONF_OBJECT);
             }}).get();
@@ -418,24 +421,24 @@ public class EntitiesYamlTest extends AbstractYamlTest {
         final Entity app = createAndStartApplication(loadYaml("test-referencing-entities.yaml"));
         waitForApplicationTasks(app);
         
-        Entity root1 = Tasks.resolving(new DslComponent(Scope.ROOT, "xxx").newTask(), Entity.class).context( ((EntityInternal)app).getExecutionContext() ).embedResolutionInTask(true).get();
+        Entity root1 = Tasks.resolving(new DslComponent(Scope.ROOT, "xxx").newTask(), Entity.class).context(app).embedResolutionInTask(true).get();
         Assert.assertEquals(root1, app);
         
-        Entity c1 = Tasks.resolving(new DslComponent("c1").newTask(), Entity.class).context( ((EntityInternal)app).getExecutionContext() ).embedResolutionInTask(true).get();
+        Entity c1 = Tasks.resolving(new DslComponent(Scope.GLOBAL, "c1").newTask(), Entity.class).context(app).embedResolutionInTask(true).get();
         Assert.assertEquals(c1, Iterables.getOnlyElement(Entities.descendantsAndSelf(app, EntityPredicates.displayNameEqualTo("child 1"))));
         
-        Entity e1 = Tasks.resolving(new DslComponent(Scope.PARENT, "xxx").newTask(), Entity.class).context( ((EntityInternal)c1).getExecutionContext() ).embedResolutionInTask(true).get();
+        Entity e1 = Tasks.resolving(new DslComponent(Scope.PARENT, "xxx").newTask(), Entity.class).context(c1).embedResolutionInTask(true).get();
         Assert.assertEquals(e1, Iterables.getOnlyElement(Entities.descendantsAndSelf(app, EntityPredicates.displayNameEqualTo("entity 1"))));
         
-        Entity root2 = Tasks.resolving(new DslComponent(Scope.ROOT, "xxx").newTask(), Entity.class).context( ((EntityInternal)c1).getExecutionContext() ).embedResolutionInTask(true).get();
+        Entity root2 = Tasks.resolving(new DslComponent(Scope.ROOT, "xxx").newTask(), Entity.class).context(c1).embedResolutionInTask(true).get();
         Assert.assertEquals(root2, app);
         
-        Entity c1a = Tasks.resolving(BrooklynDslCommon.descendant("c1").newTask(), Entity.class).context( ((EntityInternal)e1).getExecutionContext() ).embedResolutionInTask(true).get();
+        Entity c1a = Tasks.resolving(BrooklynDslCommon.descendant("c1").newTask(), Entity.class).context(e1).embedResolutionInTask(true).get();
         Assert.assertEquals(c1a, c1);
-        Entity e1a = Tasks.resolving(BrooklynDslCommon.ancestor("e1").newTask(), Entity.class).context( ((EntityInternal)c1).getExecutionContext() ).embedResolutionInTask(true).get();
+        Entity e1a = Tasks.resolving(BrooklynDslCommon.ancestor("e1").newTask(), Entity.class).context(c1).embedResolutionInTask(true).get();
         Assert.assertEquals(e1a, e1);
         try {
-            Tasks.resolving(BrooklynDslCommon.ancestor("c1").newTask(), Entity.class).context( ((EntityInternal)e1).getExecutionContext() ).embedResolutionInTask(true).get();
+            Tasks.resolving(BrooklynDslCommon.ancestor("c1").newTask(), Entity.class).context(e1).embedResolutionInTask(true).get();
             Assert.fail("Should not have found c1 as ancestor of e1");
         } catch (Exception e) { /* expected */ }
     }
@@ -593,7 +596,7 @@ public class EntitiesYamlTest extends AbstractYamlTest {
         return Tasks.resolving(Tasks.<Entity>builder().body(
             Functionals.callable(Suppliers.compose(EntityFunctions.config(key), Suppliers.ofInstance(entity))) ).build())
             .as(Entity.class)
-            .context( ((EntityInternal)entity).getExecutionContext() ).embedResolutionInTask(true)
+            .context(entity).embedResolutionInTask(true)
             .getMaybe();
     }
 
@@ -1067,4 +1070,35 @@ public class EntitiesYamlTest extends AbstractYamlTest {
     protected Logger getLogger() {
         return log;
     }
+    
+    @Test
+    public void testLeakSimple() throws Exception {
+        String yaml =
+            "services:\n"+
+                "- type: "+TestEntity.class.getName()+"\n"+
+                "- type: "+TestEntity.class.getName()+"\n"+
+                "";
+        doTestLeak(yaml);
+    }
+
+    @Test
+    public void testLeakyPlatformComponentTemplate() throws Exception {
+        String yaml = loadYaml("same-server-entity-test.yaml");
+        doTestLeak(yaml);
+    }
+    
+    protected void doTestLeak(String yaml) throws Exception {
+        CampPlatform camp = BrooklynCampPlatform.findPlatform(mgmt());
+
+        Application app = (Application) createStartWaitAndLogApplication(yaml);
+        ((StartableApplication)app).stop();
+
+        Assert.assertEquals(camp.assemblyTemplates().links().size(), 0);
+        Assert.assertEquals(camp.assemblies().links().size(), 0);
+        Assert.assertEquals(camp.applicationComponentTemplates().links().size(), 0);
+        Assert.assertEquals(camp.applicationComponents().links().size(), 0);
+        Assert.assertEquals(camp.platformComponentTemplates().links().size(), 0);
+        Assert.assertEquals(camp.platformComponents().links().size(), 0);
+    }
+
 }

@@ -30,7 +30,7 @@
 
     <groupId>org.apache.brooklyn</groupId>
     <artifactId>brooklyn-server</artifactId>
-    <version>0.10.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
+    <version>0.11.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
     <packaging>pom</packaging>
 
     <name>Brooklyn Server Root</name>
@@ -46,9 +46,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:https://git-wip-us.apache.org/repos/asf/incubator-brooklyn.git</connection>
-        <developerConnection>scm:git:https://git-wip-us.apache.org/repos/asf/incubator-brooklyn.git</developerConnection>
-        <url>https://git-wip-us.apache.org/repos/asf?p=incubator-brooklyn.git</url>
+        <connection>scm:git:https://git-wip-us.apache.org/repos/asf/brooklyn-server.git</connection>
+        <developerConnection>scm:git:https://git-wip-us.apache.org/repos/asf/brooklyn-server.git</developerConnection>
+        <url>https://git-wip-us.apache.org/repos/asf?p=brooklyn-server.git</url>
         <tag>HEAD</tag>
     </scm>
 
@@ -58,7 +58,7 @@
     </issueManagement>
     <ciManagement>
         <system>Jenkins</system>
-        <url>https://builds.apache.org/job/incubator-brooklyn-master-build/</url>
+        <url>https://builds.apache.org/view/Brooklyn/job/brooklyn-server-master/</url>
     </ciManagement>
     <mailingLists>
         <mailingList>
@@ -72,8 +72,18 @@
         </mailingList>
     </mailingLists>
 
+    <repositories>
+      <repository>
+          <id>jclouds-snapshots</id>
+        <url>https://repository.apache.org/content/repositories/snapshots</url>
+        <snapshots>
+            <enabled>true</enabled>
+        </snapshots>
+      </repository>
+    </repositories>
+
     <properties>
-        <brooklyn.version>0.10.0-SNAPSHOT</brooklyn.version>  <!-- BROOKLYN_VERSION -->
+        <brooklyn.version>0.11.0-SNAPSHOT</brooklyn.version>  <!-- BROOKLYN_VERSION -->
 
         <org.osgi.core.version>6.0.0</org.osgi.core.version>
 
@@ -91,40 +101,43 @@
         <surefire.failIfNoSpecifiedTests>false</surefire.failIfNoSpecifiedTests>
 
         <!-- Dependency Versions -->
-        <jclouds.version>1.9.2</jclouds.version> <!-- JCLOUDS_VERSION -->
+        <jclouds.version>2.0.0</jclouds.version> <!-- JCLOUDS_VERSION -->
         <logback.version>1.0.7</logback.version>
         <slf4j.version>1.6.6</slf4j.version>  <!-- used for java.util.logging jul-to-slf4j interception -->
         <!-- Must match jclouds' version. From jclouds 1.9.3+ can be any version in the range [16-20) -->
-        <guava.version>16.0.1</guava.version>
-        <!-- This can be different, OSGi will pick it up -->
+        <guava.version>18.0</guava.version>
+        <!--
+            This can be different from above and should be used only by Swagger related code.
+            Note that some bundles used by Brooklyn will try to bind to the latest version available.
+            For example jclouds and jackson-datatype-guava both depend on guava [16,20).
+        -->
         <guava-swagger.version>18.0</guava-swagger.version>
         <xstream.version>1.4.8</xstream.version>
         <xpp3.servicemix.version>1.1.4c_7</xpp3.servicemix.version>
         <kxml2.servicemix.version>2.3.0_3</kxml2.servicemix.version>
-        <!-- double-check downstream projects before changing jackson and resteasy versions -->
-        <fasterxml.jackson.version>2.4.5</fasterxml.jackson.version>
-        <resteasy.version>3.0.8.Final</resteasy.version>
+        <!-- double-check downstream projects before changing jackson version -->
+        <fasterxml.jackson.version>2.7.5</fasterxml.jackson.version>
         <cxf.version>3.1.4</cxf.version>
         <httpclient.version>4.4.1</httpclient.version>
         <commons-lang3.version>3.3.2</commons-lang3.version>
         <groovy.version>2.3.7</groovy.version> <!-- Version supported by https://github.com/groovy/groovy-eclipse/wiki/Groovy-Eclipse-2.9.1-Release-Notes -->
         <jsr305.version>2.0.1</jsr305.version>
-        <snakeyaml.version>1.11</snakeyaml.version>
+        <snakeyaml.version>1.17</snakeyaml.version>
         <!-- Next version of swagger requires changes to how path mapping and scanner injection are done. -->
         <swagger.version>1.5.6</swagger.version>
         <jansi.version>1.2.1</jansi.version>
         <gson.version>2.3</gson.version>
         <ivy.version>2.2.0</ivy.version>
         <mx4j.version>3.0.1</mx4j.version>
-        <bouncycastle.version>1.49</bouncycastle.version>
-        <sshj.version>0.8.1</sshj.version>
-        <felix.framework.version>5.4.0</felix.framework.version>
+        <bouncycastle.version>1.51</bouncycastle.version>
+        <sshj.version>0.12.0</sshj.version>
+        <felix.framework.version>5.6.1</felix.framework.version>
         <reflections.version>0.9.9-RC1</reflections.version>
         <jetty.version>9.2.13.v20150730</jetty.version>
         <jetty-schemas.version>3.1.M0</jetty-schemas.version>
         <airline.version>0.6</airline.version>
         <mockwebserver.version>20121111</mockwebserver.version>
-        <freemarker.version>2.3.22</freemarker.version>
+        <freemarker.version>2.3.25-incubating</freemarker.version>
         <commons-io.version>2.4</commons-io.version>
         <jsonPath.version>2.0.0</jsonPath.version>
         <commons-compress.version>1.4</commons-compress.version>
@@ -139,7 +152,6 @@
         <jtidy.version>r8-20060801</jtidy.version>
         <opendmk_jmxremote_optional_jar.version>1.0-b01-ea</opendmk_jmxremote_optional_jar.version>
         <jopt.version>4.3</jopt.version>
-        <concurrentlinkedhashmap.version>1.0_jdk5</concurrentlinkedhashmap.version>
         <javax-servlet.version>3.1.0</javax-servlet.version>
         <javax-servlet-jsp.version>2.0</javax-servlet-jsp.version>
         <jcommander.version>1.27</jcommander.version>
@@ -152,11 +164,11 @@
         <commons-lang.version>2.4</commons-lang.version>
         <hamcrest.version>1.1</hamcrest.version>
         <jax-rs-api.version>2.0.1</jax-rs-api.version>
-        <maxmind.version>0.8.1</maxmind.version>
-        <maxmind-db.version>0.3.4</maxmind-db.version>
-        <jna.version>4.0.0</jna.version>
-        <winrm4j.version>0.3.5</winrm4j.version>
-        <karaf.version>4.0.4</karaf.version>
+        <maxmind.version>2.8.0-rc1</maxmind.version>
+        <maxmind-db.version>1.2.1</maxmind-db.version>
+        <winrm4j.version>0.4.0</winrm4j.version>
+        <karaf.version>4.0.8</karaf.version>
+        <karaf.plugin.version>${karaf.version}</karaf.plugin.version>
         <felix-osgi-compendium.version>1.4.0</felix-osgi-compendium.version>
         <!-- Transitive dependencies, declared explicitly to avoid version mismatch -->
         <clojure.version>1.4.0</clojure.version>
@@ -171,13 +183,17 @@
         <minidev.asm.version>1.0.2</minidev.asm.version>
         <commons-beanutils.version>1.9.1</commons-beanutils.version>
         <commons-collections.version>3.2.1</commons-collections.version>
+        <javax.mail.version>1.4.4</javax.mail.version>
+        <cxf.javax.annotation-api.version>1.2</cxf.javax.annotation-api.version>
 
         <!-- Testing Dependency Versions -->
-        <testng.version>6.8.8</testng.version>
+        <!-- testng 6.9.13 has this problem https://github.com/cbeust/testng/issues/1168, to be fixed in the release following 6.9.13.8. -->
+        <!-- Recent versions of testng are not pushed to maven central, they are publishing to jcentral. -->
+        <testng.version>6.9.10</testng.version>
         <mockito.version>1.10.8</mockito.version>
         <assertj.version>2.2.0</assertj.version> <!-- v 2.2.0 is being used as v 3.20 introduces Java8 dependencies-->
         <cobertura.plugin.version>2.7</cobertura.plugin.version>
-        <surefire.version>2.18.1</surefire.version>
+        <surefire.version>2.19.1</surefire.version>
         <plantuml.version>6121</plantuml.version>
         <ant.version>1.8.4</ant.version>
 
@@ -214,7 +230,6 @@
         <module>logging/logback-includes</module>
         <module>logging/logback-xml</module>
         <module>rest/rest-api</module>
-        <module>rest/rest-client</module>
         <module>rest/rest-resources</module>
         <module>rest/rest-server</module>
         <module>test-framework</module>

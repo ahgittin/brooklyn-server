@@ -20,42 +20,19 @@ package org.apache.brooklyn.location.jclouds.networking;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 
 import javax.annotation.Nullable;
 
-import org.apache.brooklyn.api.entity.Entity;
-import org.apache.brooklyn.core.location.geo.LocalhostExternalIpLoader;
-import org.apache.brooklyn.location.jclouds.JcloudsLocation;
-import org.apache.brooklyn.location.jclouds.JcloudsLocationCustomizer;
-import org.apache.brooklyn.location.jclouds.JcloudsMachineLocation;
-import org.apache.brooklyn.location.jclouds.JcloudsSshMachineLocation;
-
-import org.jclouds.aws.AWSResponseException;
-import org.jclouds.compute.ComputeService;
-import org.jclouds.compute.domain.SecurityGroup;
-import org.jclouds.compute.domain.Template;
-import org.jclouds.compute.extensions.SecurityGroupExtension;
-import org.jclouds.domain.Location;
-import org.jclouds.net.domain.IpPermission;
-import org.jclouds.net.domain.IpProtocol;
-import org.jclouds.providers.ProviderMetadata;
-import org.jclouds.providers.Providers;
-
+import org.apache.brooklyn.util.collections.MutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.brooklyn.location.jclouds.BasicJcloudsLocationCustomizer;
-import org.apache.brooklyn.util.collections.MutableList;
-import org.apache.brooklyn.util.core.task.Tasks;
-import org.apache.brooklyn.util.exceptions.Exceptions;
-import org.apache.brooklyn.util.net.Cidr;
-import org.apache.brooklyn.util.time.Duration;
-
-import com.google.common.annotations.Beta;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -70,23 +47,48 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 
+import org.jclouds.aws.AWSResponseException;
+import org.jclouds.compute.ComputeService;
+import org.jclouds.compute.domain.SecurityGroup;
+import org.jclouds.compute.domain.Template;
+import org.jclouds.compute.extensions.SecurityGroupExtension;
+import org.jclouds.domain.Location;
+import org.jclouds.net.domain.IpPermission;
+import org.jclouds.net.domain.IpProtocol;
+import org.jclouds.providers.ProviderMetadata;
+import org.jclouds.providers.Providers;
+
+import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.core.location.geo.LocalhostExternalIpLoader;
+import org.apache.brooklyn.location.jclouds.BasicJcloudsLocationCustomizer;
+import org.apache.brooklyn.location.jclouds.JcloudsLocation;
+import org.apache.brooklyn.location.jclouds.JcloudsLocationConfig;
+import org.apache.brooklyn.location.jclouds.JcloudsLocationCustomizer;
+import org.apache.brooklyn.location.jclouds.JcloudsMachineLocation;
+import org.apache.brooklyn.util.collections.MutableList;
+import org.apache.brooklyn.util.core.task.Tasks;
+import org.apache.brooklyn.util.exceptions.Exceptions;
+import org.apache.brooklyn.util.net.Cidr;
+import org.apache.brooklyn.util.time.Duration;
+
 /**
  * Configures custom security groups on Jclouds locations.
- *
- * @see SecurityGroupExtension is an optional extension to jclouds compute service. It allows the manipulation of
- * {@link SecurityGroup}s.
- *
+ * <p>
  * This customizer can be injected into {@link JcloudsLocation#obtainOnce} using
- * It will be executed after the provisiioning of the {@link JcloudsMachineLocation} to apply app-specific
- * customization related to the security groups.
+ * the {@link JcloudsLocationConfig#JCLOUDS_LOCATION_CUSTOMIZERS} configuration key.
+ * It will be executed after the provisiioning of the {@link JcloudsMachineLocation}
+ * to apply app-specific customization related to the security groups.
+ * <p>
+ * {@link SecurityGroupExtension} is an optional extension to the jclouds compute
+ * service. It allows the manipulation of {@link SecurityGroup security groups}.
  *
  * @since 0.7.0
  */
-@Beta
 public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocationCustomizer {
 
     private static final Logger LOG = LoggerFactory.getLogger(JcloudsLocationSecurityGroupCustomizer.class);
@@ -168,19 +170,25 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
         return this;
     }
 
-    /** @see #addPermissionsToLocation(JcloudsSshMachineLocation, java.lang.Iterable) */
-    public JcloudsLocationSecurityGroupCustomizer addPermissionsToLocation(final JcloudsMachineLocation location, IpPermission... permissions) {
+    /** @see #addPermissionsToLocation(JcloudsMachineLocation, java.lang.Iterable) */
+    public JcloudsLocationSecurityGroupCustomizer addPermissionsToLocation(final JcloudsMachineLocation location,
+            IpPermission... permissions) {
+
         addPermissionsToLocation(location, ImmutableList.copyOf(permissions));
         return this;
     }
 
-    /** @see #addPermissionsToLocation(JcloudsSshMachineLocation, java.lang.Iterable) */
-    public JcloudsLocationSecurityGroupCustomizer addPermissionsToLocation(final JcloudsMachineLocation location, SecurityGroupDefinition securityGroupDefinition) {
+    /** @see #addPermissionsToLocation(JcloudsMachineLocation, java.lang.Iterable) */
+    public JcloudsLocationSecurityGroupCustomizer addPermissionsToLocation(final JcloudsMachineLocation location,
+             SecurityGroupDefinition securityGroupDefinition) {
+
         addPermissionsToLocation(location, securityGroupDefinition.getPermissions());
         return this;
     }
 
-    private SecurityGroup getSecurityGroup(final String nodeId, final SecurityGroupExtension securityApi, final String locationId) {
+    private SecurityGroup getMachineUniqueSecurityGroup(final String nodeId, final String locationId,
+            final SecurityGroupEditor groupEditor) {
+
         // Expect to have two security groups on the node: one shared between all nodes in the location,
         // that is cached in sharedGroupCache, and one created by Jclouds that is unique to the node.
         // Relies on customize having been called before. This should be safe because the arguments
@@ -190,7 +198,8 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
         try {
             machineUniqueSecurityGroup = uniqueGroupCache.get(nodeId, new Callable<SecurityGroup>() {
                 @Override public SecurityGroup call() throws Exception {
-                    SecurityGroup sg = getUniqueSecurityGroupForNodeCachingSharedGroupIfPreviouslyUnknown(nodeId, locationId, securityApi);
+                    SecurityGroup sg =
+                        getUniqueSecurityGroupForNodeCachingSharedGroupIfUnknown(nodeId, locationId, groupEditor);
                     if (sg == null) {
                         throw new IllegalStateException("Failed to find machine-unique group on node: " + nodeId);
                     }
@@ -217,56 +226,62 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
      * the changes may not be picked up by later customizations, meaning the same rule could possibly be
      * added twice, which would fail. A finer grained mechanism would be preferable here, but
      * we have no access to the information required, so this brute force serializing is required.
+     * TODO investigate whether this can be improved. Can the synchronization be moved to
+     * the class org.apache.brooklyn.location.jclouds.networking.SecurityGroupEditor?
      *
      * @param location Location to gain permissions
      * @param permissions The set of permissions to be applied to the location
      */
-    public JcloudsLocationSecurityGroupCustomizer addPermissionsToLocation(final JcloudsMachineLocation location, final Iterable<IpPermission> permissions) {
-        synchronized (JcloudsLocationSecurityGroupCustomizer.class) {
-            ComputeService computeService = location.getParent().getComputeService();
-            String nodeId = location.getNode().getId();
-            addPermissionsToLocation(permissions, nodeId, computeService);
-            return this;
-        }
+    public JcloudsLocationSecurityGroupCustomizer addPermissionsToLocation(final JcloudsMachineLocation location,
+              final Iterable<IpPermission> permissions) {
+        addPermissionsToLocationAndReturnSecurityGroup(location, permissions);
+        return this;
     }
-    /**
-     * Removes the given security group permissions from the given node with the given compute service.
-     * <p>
-     * Takes no action if the compute service does not have a security group extension.
-     * @param permissions The set of permissions to be removed from the location
-     * @param location Location to remove permissions from
-     */
-    public void removePermissionsFromLocation(final JcloudsMachineLocation location, final Iterable<IpPermission> permissions) {
+
+    public Collection<SecurityGroup> addPermissionsToLocationAndReturnSecurityGroup(
+        final JcloudsMachineLocation location, final Iterable<IpPermission> permissions) {
+
         synchronized (JcloudsLocationSecurityGroupCustomizer.class) {
-            ComputeService computeService = location.getParent().getComputeService();
-            String nodeId = location.getNode().getId();
-            removePermissionsFromLocation(permissions, nodeId, computeService);
+            return addPermissionsInternal(permissions, location).values();
         }
     }
 
     /**
-     * Removes the given security group permissions from the given node with the given compute service.
+     * Removes the given security group permissions from the given node.
      * <p>
      * Takes no action if the compute service does not have a security group extension.
+     * @param location Location of the node to remove permissions from
      * @param permissions The set of permissions to be removed from the node
-     * @param nodeId The id of the node to update
-     * @param computeService The compute service to use to apply the changes
      */
-    @VisibleForTesting
-    void removePermissionsFromLocation(Iterable<IpPermission> permissions, final String nodeId, ComputeService computeService) {
-        if (!computeService.getSecurityGroupExtension().isPresent()) {
+    public void removePermissionsFromLocation(JcloudsMachineLocation location, Iterable<IpPermission> permissions) {
+
+        synchronized (JcloudsLocationSecurityGroupCustomizer.class) {
+            removePermissionsInternal(location, permissions);
+        }
+    }
+
+    /**
+     * Removes the given security group permissions from the given node.
+     * <p>
+     * Takes no action if the compute service does not have a security group extension.
+     * @param location Location of the node to remove permissions from
+     * @param permissions The set of permissions to be removed from the node
+     */
+    private void removePermissionsInternal(JcloudsMachineLocation location, Iterable<IpPermission> permissions) {
+        ComputeService computeService = location.getParent().getComputeService();
+        String nodeId = location.getNode().getId();
+
+        final Optional<SecurityGroupExtension> securityApi = computeService.getSecurityGroupExtension();
+        if (!securityApi.isPresent()) {
             LOG.warn("Security group extension for {} absent; cannot update node {} with {}",
                     new Object[] {computeService, nodeId, permissions});
             return;
         }
 
-        final SecurityGroupExtension securityApi = computeService.getSecurityGroupExtension().get();
-        final String locationId = computeService.getContext().unwrap().getId();
-        SecurityGroup machineUniqueSecurityGroup = getSecurityGroup(nodeId, securityApi, locationId);
-
-        for (IpPermission permission : permissions) {
-            removePermission(permission, machineUniqueSecurityGroup, securityApi);
-        }
+        final SecurityGroupEditor editor = createSecurityGroupEditor(securityApi.get(), location.getNode().getLocation());
+        String locationId = computeService.getContext().unwrap().getId();
+        SecurityGroup machineUniqueSecurityGroup = getMachineUniqueSecurityGroup(nodeId, locationId, editor);
+        editor.removePermissions(machineUniqueSecurityGroup, permissions);
     }
 
 
@@ -276,29 +291,34 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
      * <p>
      * Takes no action if the compute service does not have a security group extension.
      * @param permissions The set of permissions to be applied to the node
-     * @param nodeId The id of the node to update
-     * @param computeService The compute service to use to apply the changes
+     * @param location
      */
-    @VisibleForTesting
-    void addPermissionsToLocation(Iterable<IpPermission> permissions, final String nodeId, ComputeService computeService) {
-        if (!computeService.getSecurityGroupExtension().isPresent()) {
+    private Map<String, SecurityGroup> addPermissionsInternal(Iterable<IpPermission> permissions,
+            JcloudsMachineLocation location) {
+
+        String nodeId = location.getNode().getId();
+        final Location nodeLocation = location.getNode().getLocation();
+        ComputeService computeService = location.getParent().getComputeService();
+
+        final Optional<SecurityGroupExtension> securityApi = computeService.getSecurityGroupExtension();
+        if (!securityApi.isPresent()) {
             LOG.warn("Security group extension for {} absent; cannot update node {} with {}",
-                    new Object[] {computeService, nodeId, permissions});
-            return;
+                new Object[] {computeService, nodeId, permissions});
+            return ImmutableMap.of();
         }
-        final SecurityGroupExtension securityApi = computeService.getSecurityGroupExtension().get();
-        final String locationId = computeService.getContext().unwrap().getId();
+
+        final SecurityGroupEditor groupEditor = createSecurityGroupEditor(securityApi.get(), nodeLocation);
 
         // Expect to have two security groups on the node: one shared between all nodes in the location,
         // that is cached in sharedGroupCache, and one created by Jclouds that is unique to the node.
         // Relies on customize having been called before. This should be safe because the arguments
         // needed to call this method are not available until post-instance creation.
-        SecurityGroup machineUniqueSecurityGroup = getSecurityGroup(nodeId, securityApi, locationId);
+        String locationId = computeService.getContext().unwrap().getId();
+        SecurityGroup machineUniqueSecurityGroup = getMachineUniqueSecurityGroup(nodeId, locationId, groupEditor);
         MutableList<IpPermission> newPermissions = MutableList.copyOf(permissions);
         Iterables.removeAll(newPermissions, machineUniqueSecurityGroup.getIpPermissions());
-        for (IpPermission permission : newPermissions) {
-            addPermission(permission, machineUniqueSecurityGroup, securityApi);
-        }
+        machineUniqueSecurityGroup = groupEditor.addPermissions(machineUniqueSecurityGroup, newPermissions);
+        return MutableMap.of(machineUniqueSecurityGroup.getId(), machineUniqueSecurityGroup);
     }
 
     /**
@@ -311,14 +331,16 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
      * look for the uniqueSecurityGroup rather than the shared securityGroup.
      *
      * @param nodeId The id of the node in question
-     * @param locationId The id of the location in question
-     * @param securityApi The API to use to list security groups
+     * @param locationId The ID of the location of this node
+     * @param groupEditor security group tool
      * @return the security group unique to the given node, or null if one could not be determined.
      */
-    private SecurityGroup getUniqueSecurityGroupForNodeCachingSharedGroupIfPreviouslyUnknown(String nodeId, String locationId, SecurityGroupExtension securityApi) {
-        Set<SecurityGroup> groupsOnNode = securityApi.listSecurityGroupsForNode(nodeId);
+    private SecurityGroup getUniqueSecurityGroupForNodeCachingSharedGroupIfUnknown(String nodeId,
+                                                                                   final String locationId,
+                                                                                   final SecurityGroupEditor groupEditor) {
 
-        if(groupsOnNode == null || groupsOnNode.isEmpty()){
+        Set<SecurityGroup> groupsOnNode = groupEditor.listSecurityGroupsForNode(nodeId);
+        if(groupsOnNode.isEmpty()){
             return null;
         }
 
@@ -371,24 +393,39 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
      */
     @Override
     public void customize(JcloudsLocation location, ComputeService computeService, Template template) {
-        if (!computeService.getSecurityGroupExtension().isPresent()) {
-            LOG.warn("Security group extension for {} absent; cannot configure security groups in context: {}", computeService, applicationId);
+        final Optional<SecurityGroupExtension> securityApi = computeService.getSecurityGroupExtension();
+        if (!securityApi.isPresent()) {
+            LOG.warn("Security group extension for {} absent; cannot configure security groups in context: {}",
+                computeService, applicationId);
+
         } else if (template.getLocation() == null) {
-            LOG.warn("No location has been set on {}; cannot configure security groups in context: {}", template, applicationId);
+            LOG.warn("No location has been set on {}; cannot configure security groups in context: {}",
+                template, applicationId);
+
         } else {
             LOG.info("Configuring security groups on location {} in context {}", location, applicationId);
-            setSecurityGroupOnTemplate(location, template, computeService.getSecurityGroupExtension().get());
+            SecurityGroupEditor groupEditor = createSecurityGroupEditor(securityApi.get(), template.getLocation());
+
+            setSecurityGroupOnTemplate(location, template, groupEditor);
         }
     }
 
-    private void setSecurityGroupOnTemplate(final JcloudsLocation location, final Template template, final SecurityGroupExtension securityApi) {
+    private SecurityGroupEditor createSecurityGroupEditor(SecurityGroupExtension securityApi,
+                                                          Location location) {
+
+        return new SecurityGroupEditor(location, securityApi, isExceptionRetryable);
+    }
+
+    private void setSecurityGroupOnTemplate(final JcloudsLocation location, final Template template,
+            final SecurityGroupEditor groupEditor) {
+
         SecurityGroup shared;
         Tasks.setBlockingDetails("Loading security group shared by instances in " + template.getLocation() +
                 " in app " + applicationId);
         try {
             shared = sharedGroupCache.get(template.getLocation(), new Callable<SecurityGroup>() {
                 @Override public SecurityGroup call() throws Exception {
-                    return getOrCreateSharedSecurityGroup(template.getLocation(), securityApi);
+                    return getOrCreateSharedSecurityGroup(template.getLocation(), groupEditor);
                 }
             });
         } catch (ExecutionException e) {
@@ -400,7 +437,8 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
         Set<String> originalGroups = template.getOptions().getGroups();
         template.getOptions().securityGroups(shared.getName());
         if (!originalGroups.isEmpty()) {
-            LOG.info("Replaced configured security groups: configured={}, replaced with={}", originalGroups, template.getOptions().getGroups());
+            LOG.info("Replaced configured security groups: configured={}, replaced with={}",
+                originalGroups, template.getOptions().getGroups());
         } else {
             LOG.debug("Configured security groups at {} to: {}", location, template.getOptions().getGroups());
         }
@@ -414,16 +452,12 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
      * @param securityApi The API to use to list and create security groups
      * @return the security group to share between instances in the given location in this application
      */
-    private SecurityGroup getOrCreateSharedSecurityGroup(Location location, SecurityGroupExtension securityApi) {
+    private SecurityGroup getOrCreateSharedSecurityGroup(Location location,
+            SecurityGroupEditor groupEditor) {
+
         final String groupName = getNameForSharedSecurityGroup();
         // Could sort-and-search if straight search is too expensive
-        Optional<SecurityGroup> shared = Iterables.tryFind(securityApi.listSecurityGroupsInLocation(location), new Predicate<SecurityGroup>() {
-            @Override
-            public boolean apply(final SecurityGroup input) {
-                // endsWith because Jclouds prepends 'jclouds#' to security group names.
-                return input.getName().endsWith(groupName);
-            }
-        });
+        Optional<SecurityGroup> shared = groupEditor.findSecurityGroupByName(groupName);
         if (shared.isPresent()) {
             LOG.info("Found existing shared security group in {} for app {}: {}",
                     new Object[]{location, applicationId, groupName});
@@ -431,7 +465,7 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
         } else {
             LOG.info("Creating new shared security group in {} for app {}: {}",
                     new Object[]{location, applicationId, groupName});
-            return createBaseSecurityGroupInLocation(groupName, location, securityApi);
+            return createBaseSecurityGroupInLocation(groupName, groupEditor);
         }
     }
 
@@ -447,19 +481,18 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
      *
      *
      * @param groupName The name of the security group to create
-     * @param location The location in which the security group will be created
      * @param securityApi The API to use to create the security group
      *
      * @return the created security group
      */
-    private SecurityGroup createBaseSecurityGroupInLocation(String groupName, Location location, SecurityGroupExtension securityApi) {
-        SecurityGroup group = addSecurityGroupInLocation(groupName, location, securityApi);
+    private SecurityGroup createBaseSecurityGroupInLocation(String groupName,
+            SecurityGroupEditor groupEditor) {
 
-        Set<String> openstackNovaIds = getJcloudsLocationIds("openstack-nova");
+        SecurityGroup group = groupEditor.createSecurityGroup(groupName);
 
         String groupId = group.getProviderId();
         int fromPort = 0;
-        if (location.getParent() != null && Iterables.contains(openstackNovaIds, location.getParent().getId())) {
+        if (isOpenstackNova(groupEditor.getLocation())) {
             groupId = group.getId();
             fromPort = 1;
         }
@@ -469,9 +502,12 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
                 .groupId(groupId)
                 .fromPort(fromPort)
                 .toPort(65535);
-        addPermission(allWithinGroup.ipProtocol(IpProtocol.TCP).build(), group, securityApi);
-        addPermission(allWithinGroup.ipProtocol(IpProtocol.UDP).build(), group, securityApi);
-        addPermission(allWithinGroup.ipProtocol(IpProtocol.ICMP).fromPort(-1).toPort(-1).build(), group, securityApi);
+        group = groupEditor.addPermission(group, allWithinGroup.ipProtocol(IpProtocol.TCP).build());
+        group = groupEditor.addPermission(group, allWithinGroup.ipProtocol(IpProtocol.UDP).build());
+        if (!isAzure(groupEditor.getLocation())) {
+            group = groupEditor.addPermission(group,
+                allWithinGroup.ipProtocol(IpProtocol.ICMP).fromPort(-1).toPort(-1).build());
+        }
 
         IpPermission sshPermission = IpPermission.builder()
                 .fromPort(22)
@@ -479,17 +515,21 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
                 .ipProtocol(IpProtocol.TCP)
                 .cidrBlock(getBrooklynCidrBlock())
                 .build();
-        addPermission(sshPermission, group, securityApi);
+        group = groupEditor.addPermission(group, sshPermission);
 
         return group;
     }
 
     private Set<String> getJcloudsLocationIds(final String jcloudsApiId) {
+        return getJcloudsLocationIds(ImmutableList.of(jcloudsApiId));
+    }
+    
+    private Set<String> getJcloudsLocationIds(final Collection<? extends String> jcloudsApiIds) {
         Set<String> openstackNovaProviders = FluentIterable.from(Providers.all())
                 .filter(new Predicate<ProviderMetadata>() {
             @Override
             public boolean apply(ProviderMetadata providerMetadata) {
-                return providerMetadata.getApiMetadata().getId().equals(jcloudsApiId);
+                return jcloudsApiIds.contains(providerMetadata.getApiMetadata().getId());
             }
         }).transform(new Function<ProviderMetadata, String>() {
             @Nullable
@@ -501,63 +541,22 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
 
         return new ImmutableSet.Builder<String>()
                 .addAll(openstackNovaProviders)
-                .add(jcloudsApiId)
+                .addAll(jcloudsApiIds)
                 .build();
     }
 
-    protected SecurityGroup addSecurityGroupInLocation(final String groupName, final Location location, final SecurityGroupExtension securityApi) {
-        LOG.debug("Creating security group {} in {}", groupName, location);
-        Callable<SecurityGroup> callable = new Callable<SecurityGroup>() {
-            @Override
-            public SecurityGroup call() throws Exception {
-                return securityApi.createSecurityGroup(groupName, location);
-            }
-        };
-        return runOperationWithRetry(callable);
+    private boolean isOpenstackNova(Location location) {
+        Set<String> computeIds = getJcloudsLocationIds(
+            ImmutableList.of("openstack-nova", "openstack-mitaka-nova", "openstack-devtest-compute"));
+        return location.getParent() != null && Iterables.contains(computeIds, location.getParent().getId());
     }
+    
+    private boolean isAzure(Location location) {
+        Set<String> computeIds = getJcloudsLocationIds("azurecompute");
+        return location.getParent() != null && Iterables.contains(computeIds, location.getParent().getId());
+    }
+    
 
-    protected SecurityGroup addPermission(final IpPermission permission, final SecurityGroup group, final SecurityGroupExtension securityApi) {
-        LOG.debug("Adding permission to security group {}: {}", group.getName(), permission);
-        Callable<SecurityGroup> callable = new Callable<SecurityGroup>() {
-            @Override
-            public SecurityGroup call() throws Exception {
-                try {
-                    return securityApi.addIpPermission(permission, group);
-                } catch (AWSResponseException e) {
-                    if ("InvalidPermission.Duplicate".equals(e.getError().getCode())) {
-                        // already exists
-                        LOG.info("Permission already exists for security group; continuing (logging underlying exception at debug): permission="+permission+"; group="+group);
-                        LOG.debug("Permission already exists for security group; continuing: permission="+permission+"; group="+group, e);
-                        return null;
-                    } else {
-                        throw e;
-                    }
-                } catch (Exception e) {
-                    Exceptions.propagateIfFatal(e);
-                    if (e.toString().contains("InvalidPermission.Duplicate")) {
-                        // belt-and-braces, in case 
-                        // already exists
-                        LOG.info("Permission already exists for security group; continuing (but unexpected exception type): permission="+permission+"; group="+group, e);
-                        return null;
-                    } else {
-                        throw Exceptions.propagate(e);
-                    }
-                }
-            }
-        };
-        return runOperationWithRetry(callable);
-    }
-
-    protected SecurityGroup removePermission(final IpPermission permission, final SecurityGroup group, final SecurityGroupExtension securityApi) {
-        LOG.debug("Removing permission from security group {}: {}", group.getName(), permission);
-        Callable<SecurityGroup> callable = new Callable<SecurityGroup>() {
-            @Override
-            public SecurityGroup call() throws Exception {
-                return securityApi.removeIpPermission(permission, group);
-            }
-        };
-        return runOperationWithRetry(callable);
-    }
 
     /** @return the CIDR block used to configure Brooklyn's in security groups */
     public String getBrooklynCidrBlock() {
@@ -584,34 +583,6 @@ public class JcloudsLocationSecurityGroupCustomizer extends BasicJcloudsLocation
         uniqueGroupCache.invalidateAll();
     }
 
-    /**
-     * Runs the given callable. Repeats until the operation succeeds or {@link #isExceptionRetryable} indicates
-     * that the request cannot be retried.
-     */
-    protected <T> T runOperationWithRetry(Callable<T> operation) {
-        int backoff = 64;
-        Exception lastException = null;
-        for (int retries = 0; retries < 100; retries++) {
-            try {
-                return operation.call();
-            } catch (Exception e) {
-                lastException = e;
-                if (isExceptionRetryable.apply(e)) {
-                    LOG.debug("Attempt #{} failed to add security group: {}", retries + 1, e.getMessage());
-                    try {
-                        Thread.sleep(backoff);
-                    } catch (InterruptedException e1) {
-                        throw Exceptions.propagate(e1);
-                    }
-                    backoff = backoff << 1;
-                } else {
-                    break;
-                }
-            }
-        }
-
-        throw new RuntimeException("Unable to add security group rule; repeated errors from provider", lastException);
-    }
 
     /**
      * @return

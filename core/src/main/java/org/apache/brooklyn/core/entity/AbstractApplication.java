@@ -60,6 +60,7 @@ public abstract class AbstractApplication extends AbstractEntity implements Star
     public AbstractApplication() {
     }
 
+    @Override
     public void init() { 
         super.init();
         initApp();
@@ -128,7 +129,10 @@ public abstract class AbstractApplication extends AbstractEntity implements Star
         super.initEnrichers();
 
         // default app logic; easily overridable by adding a different enricher with the same tag
-        ServiceStateLogic.newEnricherFromChildren().checkChildrenAndMembers().addTo(this);
+        ServiceStateLogic.newEnricherFromChildren().checkChildrenAndMembers()
+                .configure(ServiceStateLogic.ComputeServiceIndicatorsFromChildrenAndMembers.UP_QUORUM_CHECK, config().get(UP_QUORUM_CHECK))
+                .configure(ServiceStateLogic.ComputeServiceIndicatorsFromChildrenAndMembers.RUNNING_QUORUM_CHECK, config().get(RUNNING_QUORUM_CHECK))
+                .addTo(this);
         ServiceStateLogic.ServiceNotUpLogic.updateNotUpIndicator(this, Attributes.SERVICE_STATE_ACTUAL, "Application created but not yet started, at "+Time.makeDateString());
     }
 
@@ -143,26 +147,37 @@ public abstract class AbstractApplication extends AbstractEntity implements Star
         Collection<? extends Location> locationsToUse = locations==null ? ImmutableSet.<Location>of() : locations;
         ServiceProblemsLogic.clearProblemsIndicator(this, START);
         ServiceStateLogic.ServiceNotUpLogic.updateNotUpIndicator(this, Attributes.SERVICE_STATE_ACTUAL, "Application starting");
+        ServiceStateLogic.ServiceNotUpLogic.clearNotUpIndicator(this, START.getName());
         setExpectedStateAndRecordLifecycleEvent(Lifecycle.STARTING);
         try {
-            preStart(locationsToUse);
-
-            // Opportunity to block startup until other dependent components are available
-            Object val = config().get(START_LATCH);
-            if (val != null) log.debug("{} finished waiting for start-latch; continuing...", this);
-
-            doStart(locationsToUse);
-            postStart(locationsToUse);
-
-            ServiceStateLogic.ServiceNotUpLogic.clearNotUpIndicator(this, Attributes.SERVICE_STATE_ACTUAL);
+            try {
+                
+                preStart(locationsToUse);
+                
+                // Opportunity to block startup until other dependent components are available
+                Object val = config().get(START_LATCH);
+                if (val != null) log.debug("{} finished waiting for start-latch; continuing...", this);
+                
+                doStart(locationsToUse);
+                postStart(locationsToUse);
+                
+            } catch (ProblemStartingChildrenException e) {
+                throw Exceptions.propagate(e);
+            } catch (Exception e) {
+                // should remember problems, apart from those that happened starting children
+                // fixed bug introduced by the fix in dacf18b831e1e5e1383d662a873643a3c3cabac6
+                // where failures in special code at application root don't cause app to go on fire 
+                ServiceStateLogic.ServiceNotUpLogic.updateNotUpIndicator(this, START.getName(), Exceptions.collapseText(e));
+                throw Exceptions.propagate(e);
+            }
+            
         } catch (Exception e) {
-            // TODO should probably remember these problems then clear?  if so, do it here ... or on all effectors?
-            // ServiceProblemsLogic.updateProblemsIndicator(this, START, e);
-
             recordApplicationEvent(Lifecycle.ON_FIRE);
             // no need to log here; the effector invocation should do that
             throw Exceptions.propagate(e);
+            
         } finally {
+            ServiceStateLogic.ServiceNotUpLogic.clearNotUpIndicator(this, Attributes.SERVICE_STATE_ACTUAL);
             ServiceStateLogic.setExpectedState(this, Lifecycle.RUNNING);
         }
 
@@ -176,9 +191,23 @@ public abstract class AbstractApplication extends AbstractEntity implements Star
     }
     
     protected void doStart(Collection<? extends Location> locations) {
-        StartableMethods.start(this, locations);        
+        doStartChildren(locations);        
+    }
+    
+    protected void doStartChildren(Collection<? extends Location> locations) {
+        try {
+            StartableMethods.start(this, locations);
+        } catch (Exception e) {
+            Exceptions.propagateIfFatal(e);
+            throw new ProblemStartingChildrenException(e);
+        }
     }
 
+    private static class ProblemStartingChildrenException extends RuntimeException {
+        private static final long serialVersionUID = 7710856289284536803L;
+        private ProblemStartingChildrenException(Exception cause) { super(cause); }
+    }
+    
     /**
      * Default is no-op. Subclasses can override.
      * */
@@ -200,9 +229,9 @@ public abstract class AbstractApplication extends AbstractEntity implements Star
     public void stop() {
         logApplicationLifecycle("Stopping");
 
+        setExpectedStateAndRecordLifecycleEvent(Lifecycle.STOPPING);
         ServiceStateLogic.ServiceNotUpLogic.updateNotUpIndicator(this, Attributes.SERVICE_STATE_ACTUAL, "Application stopping");
         sensors().set(SERVICE_UP, false);
-        setExpectedStateAndRecordLifecycleEvent(Lifecycle.STOPPING);
         try {
             doStop();
         } catch (Exception e) {

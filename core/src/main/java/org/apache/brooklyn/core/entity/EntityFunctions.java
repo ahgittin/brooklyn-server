@@ -19,19 +19,23 @@
 package org.apache.brooklyn.core.entity;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static org.apache.brooklyn.util.JavaGroovyEquivalents.elvis;
 
 import java.util.Collection;
 import java.util.Map;
 
+import javax.annotation.Nullable;
+
 import org.apache.brooklyn.api.entity.Application;
 import org.apache.brooklyn.api.entity.Entity;
-import org.apache.brooklyn.api.entity.EntityLocal;
 import org.apache.brooklyn.api.location.Location;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.objs.Identifiable;
 import org.apache.brooklyn.api.sensor.AttributeSensor;
 import org.apache.brooklyn.config.ConfigKey;
+import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.entity.lifecycle.ServiceStateLogic;
+import org.apache.brooklyn.core.sensor.Sensors;
 import org.apache.brooklyn.util.core.flags.TypeCoercions;
 import org.apache.brooklyn.util.guava.Functionals;
 
@@ -99,7 +103,7 @@ public class EntityFunctions {
             @SuppressWarnings({ "unchecked", "rawtypes" })
             @Override public Void apply(Entity input) {
                 for (Map.Entry<AttributeSensor<?>,Object> entry : values.entrySet()) {
-                    AttributeSensor sensor = (AttributeSensor)entry.getKey();
+                    AttributeSensor sensor = entry.getKey();
                     Object value = entry.getValue();
                     if (value==Entities.UNCHANGED) {
                         // nothing
@@ -122,7 +126,7 @@ public class EntityFunctions {
         // TODO PERSISTENCE WORKAROUND
         class UpdatingSensorMapEntryFunction implements Function<Entity, Void> {
             @Override public Void apply(Entity input) {
-                ServiceStateLogic.updateMapSensorEntry((EntityLocal)input, mapSensor, key, valueSupplier.get());
+                ServiceStateLogic.updateMapSensorEntry(input, mapSensor, key, valueSupplier.get());
                 return null;
             }
         }
@@ -141,7 +145,11 @@ public class EntityFunctions {
         }
         return new AppsSupplier();
     }
-    
+
+    public static Function<Entity, Object> attribute(String attributeName) {
+        return attribute(Sensors.newSensor(Object.class, attributeName));
+    }
+
     public static <T> Function<Entity, T> attribute(AttributeSensor<T> attribute) {
         return new GetEntityAttributeFunction<T>(checkNotNull(attribute, "attribute"));
     }
@@ -153,6 +161,26 @@ public class EntityFunctions {
         }
         @Override public T apply(Entity input) {
             return (input == null) ? null : input.getAttribute(attribute);
+        }
+    }
+
+    public static Function<Entity, String> attribute(String attributeName, String format) {
+        return attribute(Sensors.newSensor(Object.class, attributeName), format);
+    }
+
+    public static Function<Entity, String> attribute(AttributeSensor<?> attribute, String format) {
+        return new FormatEntityAttributeFunction(checkNotNull(attribute, "attribute"), checkNotNull(format, "format"));
+    }
+
+    protected static class FormatEntityAttributeFunction implements Function<Entity, String> {
+        private final AttributeSensor<?> attribute;
+        private final String format;
+        protected FormatEntityAttributeFunction(AttributeSensor<?> attribute, String format) {
+            this.attribute = attribute;
+            this.format = format;
+        }
+        @Override public String apply(Entity input) {
+            return (input == null) ? null : String.format(format, input.getAttribute(attribute));
         }
     }
 
@@ -172,6 +200,10 @@ public class EntityFunctions {
         }
     }
 
+    public static Function<Entity, Object> config(String keyName) {
+        return config(ConfigKeys.newConfigKey(Object.class, keyName));
+    }
+
     public static <T> Function<Entity, T> config(ConfigKey<T> key) {
         return new GetEntityConfigFunction<T>(checkNotNull(key, "key"));
     }
@@ -185,6 +217,28 @@ public class EntityFunctions {
 
         @Override public T apply(Entity input) {
             return (input == null) ? null : input.getConfig(key);
+        }
+    }
+
+    public static Function<Entity, String> config(String keyName, String format) {
+        return config(ConfigKeys.newConfigKey(Object.class, keyName), format);
+    }
+
+    public static Function<Entity, String> config(ConfigKey<?> key, String format) {
+        return new FormatEntityConfigFunction(checkNotNull(key, "key"), checkNotNull(format, "format"));
+    }
+
+    protected static class FormatEntityConfigFunction implements Function<Entity, String> {
+        private final ConfigKey<?> key;
+        private final String format;
+
+        protected FormatEntityConfigFunction(ConfigKey<?> key, String format) {
+            this.key = key;
+            this.format = format;
+        }
+
+        @Override public String apply(Entity input) {
+            return (input == null) ? null : String.format(format, input.getConfig(key));
         }
     }
 
@@ -226,7 +280,7 @@ public class EntityFunctions {
         @SuppressWarnings({ "unchecked", "rawtypes" })
         @Override public Void apply(Entity input) {
             for (Map.Entry<AttributeSensor<?>,Object> entry : values.entrySet()) {
-                AttributeSensor sensor = (AttributeSensor)entry.getKey();
+                AttributeSensor sensor = entry.getKey();
                 Object value = entry.getValue();
                 if (value==Entities.UNCHANGED) {
                     // nothing
@@ -263,7 +317,7 @@ public class EntityFunctions {
             this.valueSupplier = valueSupplier;
         }
         @Override public Void apply(Entity input) {
-            ServiceStateLogic.updateMapSensorEntry((EntityLocal)input, mapSensor, key, valueSupplier.get());
+            ServiceStateLogic.updateMapSensorEntry(input, mapSensor, key, valueSupplier.get());
             return null;
         }
     }
@@ -295,7 +349,8 @@ public class EntityFunctions {
     private static class LocationMatching implements Function<Entity, Location> {
         private Predicate<? super Location> filter;
         
-        private LocationMatching() { /* for xstream */
+        @SuppressWarnings("unused")
+        private LocationMatching() { /* for xstream */ 
         }
         public LocationMatching(Predicate<? super Location> filter) {
             this.filter = filter;
@@ -304,4 +359,42 @@ public class EntityFunctions {
             return Iterables.find(input.getLocations(), filter);
         }
     }
+    
+    public static Function<Entity, Entity> parent() {
+        return new EntityParent();
+    }
+    
+    private static class EntityParent implements Function<Entity, Entity> {
+        @Override public Entity apply(Entity input) {
+            return input==null ? null : input.getParent();
+        }
+    }
+
+    /** Returns a function that finds the best match for the given config key on an entity */
+    public static <T> Function<Entity, ConfigKey<T>> configKeyFinder(ConfigKey<T> queryKey, @Nullable ConfigKey<T> defaultValue) {
+        return new EntityKeyFinder<T>(queryKey, defaultValue);
+    }
+
+    /** As {@link #configKeyFinder(ConfigKey,ConfigKey)} using the query key as the default value */
+    public static <T> Function<Entity, ConfigKey<T>> configKeyFinder(ConfigKey<T> queryKey) {
+        return new EntityKeyFinder<T>(queryKey, queryKey);
+    }
+
+    private static class EntityKeyFinder<T> implements Function<Entity, ConfigKey<T>> {
+        private ConfigKey<T> queryKey;
+        private ConfigKey<T> defaultValue;
+
+        @SuppressWarnings("unused")
+        private EntityKeyFinder() { /* for xstream */ }
+        public EntityKeyFinder(ConfigKey<T> queryKey, ConfigKey<T> defaultValue) {
+            this.queryKey = queryKey;
+            this.defaultValue = defaultValue;
+        }
+
+        @SuppressWarnings("unchecked")
+        @Override public ConfigKey<T> apply(Entity entity) {
+            return entity!=null ? (ConfigKey<T>)elvis(entity.getEntityType().getConfigKey(queryKey.getName()), defaultValue) : defaultValue;
+        }
+    }
+
 }

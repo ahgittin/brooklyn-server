@@ -18,7 +18,7 @@
  */
 package org.apache.brooklyn.location.byon;
 
-import static org.apache.brooklyn.util.groovy.GroovyJavaMethods.truth;
+import static org.apache.brooklyn.util.JavaGroovyEquivalents.groovyTruth;
 
 import java.io.Closeable;
 import java.io.File;
@@ -146,7 +146,7 @@ implements MachineProvisioningLocation<T>, Closeable {
     public FixedListMachineProvisioningLocation() {
         this(Maps.newLinkedHashMap());
     }
-    public FixedListMachineProvisioningLocation(Map properties) {
+    public FixedListMachineProvisioningLocation(Map<?,?> properties) {
         super(properties);
 
         if (isLegacyConstruction()) {
@@ -215,12 +215,13 @@ implements MachineProvisioningLocation<T>, Closeable {
         return super.configure(properties);
     }
     
+    @Override
     @SuppressWarnings("unchecked")
     public FixedListMachineProvisioningLocation<T> newSubLocation(Map<?,?> newFlags) {
         // TODO shouldn't have to copy config bag as it should be inherited (but currently it is not used inherited everywhere; just most places)
         return getManagementContext().getLocationManager().createLocation(LocationSpec.create(getClass())
                 .parent(this)
-                .configure(config().getLocalBag().getAllConfig())  // FIXME Should this just be inherited?
+                .configure(config().getAllLocalRaw())  // FIXME Should this just be inherited?
                 .configure(newFlags));
     }
 
@@ -254,7 +255,7 @@ implements MachineProvisioningLocation<T>, Closeable {
                 machines.remove(machine);
                 pendingRemoval.remove(machine);
                 if (this.equals(machine.getParent())) {
-                    removeChild((Location)machine);
+                    removeChild(machine);
                 }
             }
         }
@@ -309,6 +310,7 @@ implements MachineProvisioningLocation<T>, Closeable {
         return obtain(Maps.<String,Object>newLinkedHashMap());
     }
     
+    @SuppressWarnings("unchecked")
     @Override
     public T obtain(Map<?,?> flags) throws NoMachinesAvailableException {
         T machine;
@@ -384,7 +386,7 @@ implements MachineProvisioningLocation<T>, Closeable {
         origConfigs.put(machine, origConfig);
         requestPersist();
         
-        ((ConfigurationSupportInternal)machine.config()).addToLocalBag(strFlags);
+        ((ConfigurationSupportInternal)machine.config()).putAll(strFlags);
     }
     
     protected void restoreMachineConfig(MachineLocation machine) {
@@ -399,9 +401,9 @@ implements MachineProvisioningLocation<T>, Closeable {
         Set<String> currentKeys = ((ConfigurationSupportInternal)machine.config()).getLocalBag().getAllConfig().keySet();
         Set<String> newKeys = Sets.difference(currentKeys, origConfig.entrySet());
         for (String key : newKeys) {
-            ((ConfigurationSupportInternal)machine.config()).removeFromLocalBag(key);
+            ((ConfigurationSupportInternal)machine.config()).removeKey(key);
         }
-        ((ConfigurationSupportInternal)machine.config()).addToLocalBag(origConfig);
+        ((ConfigurationSupportInternal)machine.config()).putAll(origConfig);
     }
     
     @SuppressWarnings("unchecked")
@@ -503,14 +505,14 @@ implements MachineProvisioningLocation<T>, Closeable {
                 address = address.substring(address.indexOf("@")+1);
             }
             Map config = MutableMap.of("address", address);
-            if (truth(user)) {
+            if (groovyTruth(user)) {
                 config.put("user", user);
                 config.put("sshconfig.user", user);
             }
-            if (truth(privateKeyPassphrase)) config.put("sshconfig.privateKeyPassphrase", privateKeyPassphrase);
-            if (truth(privateKeyFile)) config.put("sshconfig.privateKeyFile", privateKeyFile);
-            if (truth(privateKeyData)) config.put("sshconfig.privateKey", privateKeyData);
-            if (truth(localTempDir)) config.put("localTempDir", localTempDir);
+            if (groovyTruth(privateKeyPassphrase)) config.put("sshconfig.privateKeyPassphrase", privateKeyPassphrase);
+            if (groovyTruth(privateKeyFile)) config.put("sshconfig.privateKeyFile", privateKeyFile);
+            if (groovyTruth(privateKeyData)) config.put("sshconfig.privateKey", privateKeyData);
+            if (groovyTruth(localTempDir)) config.put("localTempDir", localTempDir);
             return config;
         }
         @SuppressWarnings("unchecked")

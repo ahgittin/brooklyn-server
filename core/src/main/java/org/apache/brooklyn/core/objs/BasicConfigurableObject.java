@@ -18,18 +18,24 @@
  */
 package org.apache.brooklyn.core.objs;
 
+import java.util.Set;
+
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.mgmt.Task;
 import org.apache.brooklyn.api.objs.Configurable;
 import org.apache.brooklyn.api.objs.Identifiable;
 import org.apache.brooklyn.config.ConfigKey;
-import org.apache.brooklyn.config.ConfigMap;
 import org.apache.brooklyn.config.ConfigKey.HasConfigKey;
+import org.apache.brooklyn.config.ConfigMap;
 import org.apache.brooklyn.core.mgmt.HasBrooklynManagementContext;
 import org.apache.brooklyn.core.mgmt.ManagementContextInjectable;
+import org.apache.brooklyn.util.collections.MutableSet;
 import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.core.flags.SetFromFlag;
 import org.apache.brooklyn.util.text.Identifiers;
+
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
 
 /**
  * A parent class for ancilliary objects that do not require the full heavy lifting of {@link AbstractBrooklynObject}
@@ -47,7 +53,7 @@ public class BasicConfigurableObject implements Configurable, Identifiable, Mana
 
     private volatile ManagementContext managementContext;
     private BasicConfigurationSupport config;
-    
+
     public BasicConfigurableObject() {
         config = new BasicConfigurationSupport();
     }
@@ -57,6 +63,7 @@ public class BasicConfigurableObject implements Configurable, Identifiable, Mana
         this.managementContext = managementContext;
     }
 
+    @Override
     public ManagementContext getBrooklynManagementContext() {
         return managementContext;
     }
@@ -77,6 +84,7 @@ public class BasicConfigurableObject implements Configurable, Identifiable, Mana
         return config().set(key, value);
     }
 
+    @Override
     public <T> T getConfig(ConfigKey<T> key) {
         return config().get(key);
     }
@@ -115,5 +123,21 @@ public class BasicConfigurableObject implements Configurable, Identifiable, Mana
         public <T> T set(HasConfigKey<T> key, Task<T> val) {
             return set(key.getConfigKey(), val);
         }
+
+        @Override @Deprecated
+        public Set<ConfigKey<?>> findKeys(Predicate<? super ConfigKey<?>> filter) {
+            return findKeysDeclared(filter);
+        }
+
+        @Override
+        public Set<ConfigKey<?>> findKeysDeclared(Predicate<? super ConfigKey<?>> filter) {
+            return MutableSet.copyOf(Iterables.filter(config.getAllConfigAsConfigKeyMap().keySet(), filter));
+        }
+
+        @Override
+        public Set<ConfigKey<?>> findKeysPresent(Predicate<? super ConfigKey<?>> filter) {
+            return findKeysDeclared(filter);
+        }
+
     }
 }

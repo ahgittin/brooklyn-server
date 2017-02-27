@@ -159,13 +159,13 @@ public class CatalogInitialization implements ManagementContextInjectable {
      *   after a master -> standby -> master cycle)
      * @param needsInitialItemsLoaded whether the catalog needs the initial items loaded
      * @param needsAdditionalItemsLoaded whether the catalog needs the additions loaded
-     * @param optionalExcplicitItemsForResettingCatalog
+     * @param optionalExplicitItemsForResettingCatalog
      *   if supplied, the catalog is reset to contain only these items, before calling any other initialization
      *   for use primarily when rebinding
      */
-    public void populateCatalog(ManagementNodeState nodeState, boolean needsInitialItemsLoaded, boolean needsAdditionsLoaded, Collection<CatalogItem<?, ?>> optionalExcplicitItemsForResettingCatalog) {
+    public void populateCatalog(ManagementNodeState nodeState, boolean needsInitialItemsLoaded, boolean needsAdditionsLoaded, Collection<CatalogItem<?, ?>> optionalExplicitItemsForResettingCatalog) {
         if (log.isDebugEnabled()) {
-            String message = "Populating catalog for "+nodeState+", needsInitial="+needsInitialItemsLoaded+", needsAdditional="+needsAdditionsLoaded+", explicitItems="+(optionalExcplicitItemsForResettingCatalog==null ? "null" : optionalExcplicitItemsForResettingCatalog.size())+"; from "+JavaClassNames.callerNiceClassAndMethod(1);
+            String message = "Populating catalog for "+nodeState+", needsInitial="+needsInitialItemsLoaded+", needsAdditional="+needsAdditionsLoaded+", explicitItems="+(optionalExplicitItemsForResettingCatalog==null ? "null" : optionalExplicitItemsForResettingCatalog.size())+"; from "+JavaClassNames.callerNiceClassAndMethod(1);
             if (!ManagementNodeState.isHotProxy(nodeState)) {
                 log.debug(message);
             } else {
@@ -196,7 +196,7 @@ public class CatalogInitialization implements ManagementContextInjectable {
                     }
                 }
 
-                populateCatalogImpl(catalog, needsInitialItemsLoaded, needsAdditionsLoaded, optionalExcplicitItemsForResettingCatalog);
+                populateCatalogImpl(catalog, needsInitialItemsLoaded, needsAdditionsLoaded, optionalExplicitItemsForResettingCatalog);
                 if (nodeState == ManagementNodeState.MASTER) {
                     // TODO ideally this would remain false until it has *persisted* the changed catalog;
                     // if there is a subsequent startup failure the forced additions will not be persisted,
@@ -393,7 +393,7 @@ public class CatalogInitialization implements ManagementContextInjectable {
         synchronized (setFromCLMMutex) {
             if (setFromCatalogLoadMode) return;
             setFromCatalogLoadMode = true;
-            Maybe<Object> clmm = ((ManagementContextInternal)managementContext).getConfig().getConfigRaw(BrooklynServerConfig.CATALOG_LOAD_MODE, false);
+            Maybe<Object> clmm = ((ManagementContextInternal)managementContext).getConfig().getConfigLocalRaw(BrooklynServerConfig.CATALOG_LOAD_MODE);
             if (clmm.isAbsent()) return;
             org.apache.brooklyn.core.catalog.CatalogLoadMode clm = TypeCoercions.coerce(clmm.get(), org.apache.brooklyn.core.catalog.CatalogLoadMode.class);
             log.warn("Legacy CatalogLoadMode "+clm+" set: applying, but this should be changed to use new CLI --catalogXxx commands");

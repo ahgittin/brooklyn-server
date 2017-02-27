@@ -20,13 +20,10 @@ package org.apache.brooklyn.core.mgmt.rebind;
 
 import static org.testng.Assert.assertEquals;
 
-import java.io.File;
-
 import org.apache.brooklyn.api.catalog.CatalogItem;
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.core.BrooklynFeatureEnablement;
 import org.apache.brooklyn.core.internal.BrooklynProperties;
-import org.apache.brooklyn.core.mgmt.internal.LocalManagementContext;
 import org.apache.brooklyn.core.server.BrooklynServerConfig;
 import org.apache.brooklyn.core.test.entity.TestEntity;
 import org.testng.annotations.AfterMethod;
@@ -57,24 +54,10 @@ public class RebindCatalogWhenCatalogPersistenceDisabledTest extends RebindTestF
     }
 
     @Override
-    protected LocalManagementContext createOrigManagementContext() {
-        BrooklynProperties properties = BrooklynProperties.Factory.newDefault();
+    protected BrooklynProperties createBrooklynProperties() {
+        BrooklynProperties properties = super.createBrooklynProperties();
         properties.put(BrooklynServerConfig.BROOKLYN_CATALOG_URL, TEST_CATALOG);
-        return RebindTestUtils.managementContextBuilder(mementoDir, classLoader)
-                .properties(properties)
-                .persistPeriodMillis(getPersistPeriodMillis())
-                .forLive(useLiveManagementContext())
-                .buildStarted();
-    }
-
-    @Override
-    protected LocalManagementContext createNewManagementContext(File mementoDir) {
-        BrooklynProperties properties = BrooklynProperties.Factory.newDefault();
-        properties.put(BrooklynServerConfig.BROOKLYN_CATALOG_URL, TEST_CATALOG);
-        return RebindTestUtils.managementContextBuilder(mementoDir, classLoader)
-                .properties(properties)
-                .forLive(useLiveManagementContext())
-                .buildUnstarted();
+        return properties;
     }
 
     @Test

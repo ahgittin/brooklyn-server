@@ -30,7 +30,6 @@ import org.apache.brooklyn.core.location.internal.LocationInternal;
 import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.guava.Maybe;
-import org.apache.brooklyn.util.guava.Maybe.Absent;
 import org.apache.brooklyn.util.text.KeyValueParser;
 
 import com.google.common.collect.ImmutableMap;
@@ -66,7 +65,7 @@ public class HostLocationResolver extends AbstractLocationResolver {
         Maybe<LocationSpec<?>> testResolve = managementContext.getLocationRegistry().getLocationSpec(target);
         if (!testResolve.isPresent()) {
             throw new IllegalArgumentException("Invalid target location '" + target + "' for location '"+HOST+"': "+
-                Exceptions.collapseText( ((Absent<?>)testResolve).getException() ), ((Absent<?>)testResolve).getException());
+                Exceptions.collapseText( Maybe.getException(testResolve) ), Maybe.getException(testResolve));
         }
         
         return LocationSpec.create(SingleMachineProvisioningLocation.class)

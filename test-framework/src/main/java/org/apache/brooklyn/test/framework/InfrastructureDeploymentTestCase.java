@@ -28,11 +28,7 @@ import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.entity.StartableApplication;
 import org.apache.brooklyn.core.entity.trait.Startable;
-import org.apache.brooklyn.entity.software.base.SoftwareProcess;
 
-/**
- * Created by graememiller on 04/12/2015.
- */
 @ImplementedBy(value = InfrastructureDeploymentTestCaseImpl.class)
 public interface InfrastructureDeploymentTestCase extends TargetableTestComponent {
 

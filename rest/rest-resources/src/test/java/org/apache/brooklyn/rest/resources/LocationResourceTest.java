@@ -26,30 +26,29 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.Nullable;
+import javax.ws.rs.core.GenericType;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import org.apache.brooklyn.core.location.LocationConfigKeys;
-import org.apache.brooklyn.location.byon.FixedListMachineProvisioningLocation;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.testng.Assert;
-import org.testng.annotations.Test;
-
-import com.google.api.client.repackaged.com.google.common.base.Joiner;
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
-import javax.ws.rs.core.GenericType;
-
 import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.core.location.LocationConfigKeys;
 import org.apache.brooklyn.core.location.SimulatedLocation;
+import org.apache.brooklyn.location.byon.FixedListMachineProvisioningLocation;
 import org.apache.brooklyn.location.jclouds.JcloudsLocation;
 import org.apache.brooklyn.rest.domain.CatalogLocationSummary;
 import org.apache.brooklyn.rest.domain.LocationSummary;
 import org.apache.brooklyn.rest.testing.BrooklynRestResourceTest;
 import org.apache.brooklyn.test.Asserts;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testng.Assert;
+import org.testng.annotations.Test;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 
 
 @Test(singleThreaded = true, 
@@ -161,9 +160,9 @@ public class LocationResourceTest extends BrooklynRestResourceTest {
     @SuppressWarnings("deprecation")
     @Test
     public void testGetLocationConfig() {
-        SimulatedLocation parentLoc = (SimulatedLocation) getManagementContext().getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class)
+        SimulatedLocation parentLoc = getManagementContext().getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class)
                 .configure("myParentKey", "myParentVal"));
-        SimulatedLocation loc = (SimulatedLocation) getManagementContext().getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class)
+        SimulatedLocation loc = getManagementContext().getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class)
                 .parent(parentLoc)
                 .configure("mykey", "myval")
                 .configure("password", "mypassword"));
@@ -226,7 +225,7 @@ public class LocationResourceTest extends BrooklynRestResourceTest {
         log.info(" summary: " + locationSummary);
         Assert.assertEquals(locationSummary.getConfig().get(LocationConfigKeys.DISPLAY_NAME.getName()), configDisplayName);
 
-        FixedListMachineProvisioningLocation l = (FixedListMachineProvisioningLocation) getManagementContext().getLocationRegistry().getLocationManaged(symbolicName);
+        FixedListMachineProvisioningLocation<?> l = (FixedListMachineProvisioningLocation<?>) getManagementContext().getLocationRegistry().getLocationManaged(symbolicName);
         Assert.assertEquals(l.getDisplayName(), configDisplayName);
     }
 
@@ -261,7 +260,7 @@ public class LocationResourceTest extends BrooklynRestResourceTest {
         log.info(" summary: " + locationSummary);
         Assert.assertEquals(locationSummary.getConfig().get(LocationConfigKeys.DISPLAY_NAME.getName()), testsDisplayName);
 
-        FixedListMachineProvisioningLocation l = (FixedListMachineProvisioningLocation) getManagementContext().getLocationRegistry().getLocationManaged(symbolicName);
+        FixedListMachineProvisioningLocation<?> l = (FixedListMachineProvisioningLocation<?>) getManagementContext().getLocationRegistry().getLocationManaged(symbolicName);
         Assert.assertEquals(l.getDisplayName(), testsDisplayName);
     }
 
@@ -298,7 +297,7 @@ public class LocationResourceTest extends BrooklynRestResourceTest {
         log.info(" summary: " + locationSummary);
         Assert.assertEquals(locationSummary.getConfig().get(LocationConfigKeys.DISPLAY_NAME.getName()), configDisplayName);
 
-        FixedListMachineProvisioningLocation l = (FixedListMachineProvisioningLocation) getManagementContext().getLocationRegistry().getLocationManaged(symbolicName);
+        FixedListMachineProvisioningLocation<?> l = (FixedListMachineProvisioningLocation<?>) getManagementContext().getLocationRegistry().getLocationManaged(symbolicName);
         Assert.assertEquals(l.getDisplayName(), configDisplayName);
     }
 }

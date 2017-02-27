@@ -32,19 +32,22 @@ public class BrooklynAppUnitTestSupport extends BrooklynMgmtUnitTestSupport {
 
     protected TestApplication app;
 
+    @Override
     @BeforeMethod(alwaysRun=true)
     public void setUp() throws Exception {
         super.setUp();
         setUpApp();
     }
 
-    protected boolean shouldSkipOnBoxBaseDirResolution() {
+    /** set null not to set, or a boolean to set explicitly; default true */
+    protected Boolean shouldSkipOnBoxBaseDirResolution() {
         return true;
     }
 
     protected void setUpApp() {
-        EntitySpec<TestApplication> appSpec = EntitySpec.create(TestApplication.class)
-                .configure(BrooklynConfigKeys.SKIP_ON_BOX_BASE_DIR_RESOLUTION, shouldSkipOnBoxBaseDirResolution());
+        EntitySpec<TestApplication> appSpec = EntitySpec.create(TestApplication.class);
+        if (shouldSkipOnBoxBaseDirResolution()!=null)
+            appSpec.configure(BrooklynConfigKeys.SKIP_ON_BOX_BASE_DIR_RESOLUTION, shouldSkipOnBoxBaseDirResolution());
         
         app = mgmt.getEntityManager().createEntity(appSpec);
     }

@@ -22,9 +22,6 @@
           xsi:noNamespaceSchemaLocation="http://karaf.apache.org/xmlns/features/v1.2.0">
 
     <repository>mvn:org.apache.karaf.features/standard/${karaf.version}/xml/features</repository>
-    <repository>mvn:org.apache.karaf.features/enterprise/${karaf.version}/xml/features</repository>
-    <repository>mvn:org.apache.karaf.features/spring/${karaf.version}/xml/features</repository>
-
     <repository>mvn:org.apache.jclouds.karaf/jclouds-karaf/${jclouds.version}/xml/features</repository>
     <repository>mvn:org.apache.cxf.karaf/apache-cxf/${cxf.version}/xml/features</repository>
 
@@ -100,6 +97,33 @@
         <bundle dependency="true">mvn:javax.servlet/javax.servlet-api/${javax-servlet.version}</bundle>
     </feature>
 
+    <feature name="brooklyn-rest-client" version="${project.version}" description="Brooklyn REST Client">
+        <feature>brooklyn-rest-api</feature>
+        <feature>swagger</feature>
+        
+        <bundle>mvn:org.apache.brooklyn/brooklyn-rest-client/${project.version}</bundle>
+        
+        <bundle dependency="true">mvn:org.apache.httpcomponents/httpclient-osgi/${httpclient.version}</bundle>
+        <bundle dependency='true'>mvn:commons-logging/commons-logging/${commons-logging.version}</bundle>
+        <bundle dependency='true'>mvn:commons-codec/commons-codec/${commons-codec.version}</bundle>
+
+        <bundle dependency='true'>mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.jsr305/${jsr305.bundle.version}</bundle>
+        <bundle dependency='true'>mvn:com.google.code.gson/gson/${gson.version}</bundle>
+        
+        <bundle dependency='true'>wrap:mvn:javax.activation/activation/${javax-activation.version}</bundle>
+        <bundle dependency="true">mvn:commons-io/commons-io/${commons-io.version}</bundle>
+        <bundle dependency='true'>mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.jcip-annotations/${jcip-annotations.bundle.version}</bundle>
+        
+        <bundle dependency="true">mvn:com.fasterxml.jackson.core/jackson-core/${fasterxml.jackson.version}</bundle>
+        <bundle dependency="true">mvn:com.fasterxml.jackson.core/jackson-annotations/${fasterxml.jackson.version}</bundle>
+        <bundle dependency="true">mvn:com.fasterxml.jackson.core/jackson-databind/${fasterxml.jackson.version}</bundle>
+        <bundle dependency="true">mvn:com.fasterxml.jackson.jaxrs/jackson-jaxrs-json-provider/${fasterxml.jackson.version}</bundle>
+        <bundle dependency='true'>mvn:com.fasterxml.jackson.jaxrs/jackson-jaxrs-base/${fasterxml.jackson.version}</bundle>
+        <bundle dependency="true">mvn:com.fasterxml.jackson.module/jackson-module-jaxb-annotations/${fasterxml.jackson.version}</bundle>
+        <bundle dependency="true">mvn:com.fasterxml.jackson.datatype/jackson-datatype-guava/${fasterxml.jackson.version}</bundle>
+    </feature>
+
+
     <feature name="brooklyn-api"  version="${project.version}" description="Brooklyn API">
         <feature>brooklyn-utils-common</feature>
         <bundle>mvn:org.apache.brooklyn/brooklyn-api/${project.version}</bundle>
@@ -120,7 +144,7 @@
         <bundle dependency="true">mvn:net.minidev/asm/${minidev.asm.version}</bundle>
         <bundle dependency="true">mvn:com.thoughtworks.xstream/xstream/${xstream.version}</bundle>
         <bundle dependency="true">mvn:org.freemarker/freemarker/${freemarker.version}</bundle>
-        <bundle dependency="true">mvn:net.schmizz/sshj/${sshj.version}</bundle>
+        <bundle dependency="true">mvn:com.hierynomus/sshj/${sshj.version}</bundle>
         <bundle dependency="true">mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.jzlib/1.1.3_2</bundle> <!-- jzlib version is 1.1.3, but bundle is 1.1.3_2 -->
         <bundle dependency="true">mvn:org.bouncycastle/bcprov-ext-jdk15on/${bouncycastle.version}</bundle>
         <bundle dependency="true">mvn:org.bouncycastle/bcpkix-jdk15on/${bouncycastle.version}</bundle>
@@ -130,7 +154,6 @@
         <bundle dependency="true">mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.kxml2/${kxml2.servicemix.version}</bundle>
 
         <!-- TODO: don't use wrap -->
-        <bundle dependency="true">wrap:mvn:com.google.http-client/google-http-client/1.18.0-rc</bundle> <!-- from geoip -->
         <bundle dependency="true">wrap:mvn:com.maxmind.geoip2/geoip2/${maxmind.version}</bundle> <!-- from geoip2 -->
         <bundle dependency="true">wrap:mvn:com.maxmind.db/maxmind-db/${maxmind-db.version}</bundle>
 
@@ -163,14 +186,14 @@
         <feature>pax-jetty</feature>
     </feature>
 
-    <feature name="brooklyn-rest-resources" version="${project.version}" description="Brooklyn REST Resources">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-rest-resources/${project.version}</bundle>
+    <feature name="brooklyn-rest-resources-prereqs" version="${project.version}" description="Brooklyn REST Resources Prerequisites">
         <feature>brooklyn-core</feature>
         <feature>brooklyn-rest-api</feature>
         <feature>brooklyn-camp-brooklyn</feature>
         <feature>brooklyn-camp-base</feature>
 
         <feature>cxf-jaxrs</feature>
+        <bundle dependency="true">mvn:org.apache.cxf/cxf-rt-rs-security-cors/${cxf.version}</bundle>
 
         <bundle dependency="true">mvn:com.fasterxml.jackson.jaxrs/jackson-jaxrs-json-provider/${fasterxml.jackson.version}</bundle>
 
@@ -183,16 +206,14 @@
         </config>
     </feature>
 
-    <feature name="brooklyn-jsgui" version="${project.version}" description="Brooklyn REST JavaScript Web GUI">
-        <feature>pax-jetty</feature> <!-- jaas bundle -->
-        <bundle>mvn:org.apache.brooklyn/brooklyn-karaf-jetty-config/${project.version}</bundle>
-        <bundle>mvn:org.apache.brooklyn/brooklyn-jsgui/${project.version}/war</bundle>
-        <feature>war</feature>
+    <feature name="brooklyn-rest-resources" version="${project.version}" description="Brooklyn REST Resources">
+        <feature>brooklyn-rest-resources-prereqs</feature>
+        <bundle>mvn:org.apache.brooklyn/brooklyn-rest-resources/${project.version}</bundle>
     </feature>
 
     <feature name="brooklyn-commands"  version="${project.version}"  description="Brooklyn Shell Commands">
+        <bundle dependency="true">mvn:org.apache.brooklyn/brooklyn-launcher-common/${project.version}</bundle>
         <bundle>mvn:org.apache.brooklyn/brooklyn-commands/${project.version}</bundle>
-        <!--<feature version="${project.version}">brooklyn-core</feature>-->
     </feature>
 
     <feature name="brooklyn-software-winrm" version="${project.version}" description="Brooklyn WinRM Software Entities">
@@ -200,8 +221,10 @@
         <feature>brooklyn-core</feature>
         <bundle dependency="true">mvn:io.cloudsoft.windows/winrm4j/${winrm4j.version}</bundle>
         <bundle dependency="true">mvn:io.cloudsoft.windows/winrm4j-client/${winrm4j.version}</bundle>
+        <bundle>mvn:org.apache.brooklyn/brooklyn-karaf-httpcomponents-extension/${project.version}</bundle>
         <feature>cxf-jaxws</feature>
         <feature>cxf-http-async</feature>
+        <feature>cxf-ws-addr</feature>
     </feature>
 
     <feature name="brooklyn-policy"  version="${project.version}" description="Brooklyn Policies">
@@ -211,7 +234,7 @@
 
     <feature name="brooklyn-software-base"  version="${project.version}"  description="Brooklyn Software Base">
         <bundle>mvn:org.apache.brooklyn/brooklyn-software-base/${project.version}</bundle>
-        <bundle dependency="true">wrap:mvn:org.glassfish.external/opendmk_jmxremote_optional_jar/${opendmk_jmxremote_optional_jar.version}</bundle>
+        <bundle dependency="true">wrap:mvn:org.glassfish.external/opendmk_jmxremote_optional_jar/${opendmk_jmxremote_optional_jar.version}$Import-Package=javax.management.openmbean,*</bundle>
         <feature>brooklyn-software-winrm</feature>
         <feature>brooklyn-policy</feature>
     </feature>
@@ -219,7 +242,7 @@
     <feature name="brooklyn-jmxmp-agent" version="${project.version}" description="Brooklyn Secure JMXMP Agent">
         <bundle>mvn:org.apache.brooklyn/brooklyn-jmxmp-agent/${project.version}</bundle>
         <feature>brooklyn-core</feature>
-        <bundle dependency="true">wrap:mvn:org.glassfish.external/opendmk_jmxremote_optional_jar/${opendmk_jmxremote_optional_jar.version}</bundle>
+        <bundle dependency="true">wrap:mvn:org.glassfish.external/opendmk_jmxremote_optional_jar/${opendmk_jmxremote_optional_jar.version}$Import-Package=javax.management.openmbean,*</bundle>
     </feature>
 
     <feature name="brooklyn-jmxrmi-agent" version="${project.version}" description="Brooklyn JMX RMI Agent">
@@ -227,24 +250,29 @@
     </feature>
 
     <feature name="brooklyn-locations-jclouds" version="${project.version}" description="Brooklyn Jclouds Location Targets">
+        <!--  Override jclouds provided 0.3_1 dependency - jclouds already depends on 1.1, but jclouds-karaf is not updated yet. -->
+        <bundle dependency="true">mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.java-xmlbuilder/1.1_1</bundle>
+
         <!--
             OkHttp had OSGi support shortly in 3.0.0, but was immediately reverted in 3.0.1
             https://github.com/square/okhttp/pull/2192
             https://github.com/square/okhttp/issues/2243
             https://github.com/square/okhttp/pull/2246
         -->
-        <bundle dependency="true">wrap:mvn:com.squareup.okhttp/okhttp/2.2.0</bundle>
-        <bundle dependency="true">wrap:mvn:com.squareup.okio/okio/1.2.0</bundle>
+        <!-- TODO use ServiceMix bundle for okhttp when dependency on okio is fixed there -->
+        <bundle dependency="true">wrap:mvn:com.squareup.okhttp/okhttp/2.2.0$Import-Package=org.apache.http.*;resolution:=optional,android.util.*;resolution:=optional,okio;version=%27[1.2.0,1.3.0)%27,*</bundle>
+        <bundle dependency="true">mvn:org.apache.servicemix.bundles/org.apache.servicemix.bundles.okio/1.2.0_1</bundle>
         <bundle dependency="true">mvn:org.apache.jclouds.driver/jclouds-okhttp/${jclouds.version}</bundle>
 
         <bundle dependency="true">mvn:org.apache.jclouds.driver/jclouds-sshj/${jclouds.version}</bundle>
-        <bundle dependency="true">mvn:org.apache.jclouds.labs/abiquo/${jclouds.version}</bundle>
-        <bundle dependency="true">mvn:org.apache.jclouds.labs/docker/${jclouds.version}</bundle>
+        <!--<bundle dependency="true">mvn:org.apache.jclouds.labs/abiquo/${jclouds.version}</bundle>--> <!-- jclouds abstraction not implemented -->
+        <bundle dependency="true">mvn:org.apache.jclouds.api/docker/${jclouds.version}</bundle>
 
-        <!-- Not bundle-ized, fixed in 2.0.0-SNAPSHOT -->
-        <!-- bundle dependency="true">mvn:org.apache.jclouds.labs/google-compute-engine/${jclouds.version}</bundle -->
+        <bundle dependency="true">mvn:org.apache.jclouds.provider/google-compute-engine/${jclouds.version}</bundle>
+        <bundle dependency="true">mvn:org.apache.jclouds.api/oauth/${jclouds.version}</bundle>
 
         <feature>jclouds-services</feature>
+        <bundle dependency="true">wrap:mvn:com.jcraft/jsch.agentproxy.sshj/0.0.9$Bundle-Name=wrap%20%3A%3A%20jsch.agentproxy.sshj</bundle>
 
         <!-- Same as allcompute -->
         <feature>jclouds-aws-ec2</feature>
@@ -277,86 +305,30 @@
 
         <bundle start-level="85">mvn:org.apache.brooklyn/brooklyn-locations-jclouds/${project.version}</bundle>
         <feature>brooklyn-software-winrm</feature>
+        <feature>brooklyn-locations-jclouds-labs</feature>
     </feature>
 
-    <feature name="brooklyn-software-network" version="${project.version}" description="Brooklyn Network Software Entities">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-network/${project.version}</bundle>
-        <feature>brooklyn-software-base</feature>
-    </feature>
-
-    <feature name="brooklyn-software-cm" version="${project.version}" description="Configuration Management modules">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-cm-salt/${project.version}</bundle>
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-cm-ansible/${project.version}</bundle>
-    </feature>
-
-    <feature name="brooklyn-software-osgi" version="${project.version}" description="Brooklyn OSGi Software Entities">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-osgi/${project.version}</bundle>
-        <feature>brooklyn-core</feature>
-        <feature>brooklyn-api</feature>
-        <feature>brooklyn-software-base</feature>
-        <bundle dependency="true">mvn:com.google.guava/guava/${guava.version}</bundle>
-    </feature>
-
-    <feature name="brooklyn-software-database" version="${project.version}" description="Brooklyn Database Software Entities">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-database/${project.version}</bundle>
-        <feature>brooklyn-core</feature>
-        <feature>brooklyn-api</feature>
-        <feature>brooklyn-software-base</feature>
-        <bundle dependency="true">mvn:com.google.guava/guava/${guava.version}</bundle>
-    </feature>
-
-    <feature name="brooklyn-software-webapp" version="${project.version}" description="Brooklyn Web App Software Entities">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-webapp/${project.version}</bundle>
-        <feature>brooklyn-software-base</feature>
-        <bundle dependency="true">wrap:mvn:org.hibernate/jtidy/${jtidy.version}</bundle>
-    </feature>
-
-    <feature name="brooklyn-software-messaging" version="${project.version}" description="Brooklyn Messaging Software Entities">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-messaging/${project.version}</bundle>
-        <feature>brooklyn-software-base</feature>
-    </feature>
-
-    <feature name="brooklyn-software-nosql" version="${project.version}" description="Brooklyn NoSQL Data Store Software Entities">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-nosql/${project.version}</bundle>
-        <feature>brooklyn-software-base</feature>
-        <feature>brooklyn-software-database</feature>
-        <feature>brooklyn-software-webapp</feature>
-        <bundle dependency="true">mvn:org.mongodb/mongo-java-driver/3.0.3</bundle>
-    </feature>
-
-    <feature name="brooklyn-software-monitoring" version="${project.version}" description="Brooklyn Monitoring Software Entities">
-        <bundle>mvn:org.apache.brooklyn/brooklyn-software-monitoring/${project.version}</bundle>
-        <feature>brooklyn-core</feature>
-        <feature>brooklyn-api</feature>
-        <feature>brooklyn-software-base</feature>
-        <bundle dependency="true">mvn:com.google.guava/guava/${guava.version}</bundle>
+    <feature name="brooklyn-locations-jclouds-labs" version="${project.version}" description="Brooklyn JClouds Labs Location Targets">
+        <bundle>mvn:org.apache.jclouds.labs/azurecompute/${jclouds.version}</bundle>
+        <bundle>mvn:org.apache.jclouds.labs/azurecompute-arm/${jclouds.version}</bundle>
     </feature>
 
     <feature name="brooklyn-test-framework" version="${project.version}" description="Brooklyn Test Framework" >
         <bundle>mvn:org.apache.brooklyn/brooklyn-test-framework/${project.version}</bundle>
     </feature>
 
-    <!-- Don't load all bundles out of the box in the long run. Let users cherry pick what they need. -->
-    <feature name="brooklyn-software-all" version="${project.version}" description="Brooklyn All Software Entities">
+    <feature name="brooklyn-server-software-all" version="${project.version}" description="Brooklyn All Core Entities">
         <feature>brooklyn-software-base</feature>
         <feature>brooklyn-jmxmp-agent</feature>
         <feature>brooklyn-jmxrmi-agent</feature>
-        <feature>brooklyn-software-network</feature>
-        <feature>brooklyn-software-cm</feature>
-        <feature>brooklyn-software-osgi</feature>
-        <feature>brooklyn-software-database</feature>
-        <feature>brooklyn-software-webapp</feature>
-        <feature>brooklyn-software-messaging</feature>
-        <feature>brooklyn-software-nosql</feature>
-        <feature>brooklyn-software-monitoring</feature>
         <feature>brooklyn-test-framework</feature>
     </feature>
 
     <feature name="brooklyn-osgi-launcher" version="${project.version}" description="Brooklyn init">
         <feature>brooklyn-core</feature>
-        <feature>brooklyn-software-all</feature>
+        <feature>brooklyn-server-software-all</feature>
         <feature>brooklyn-locations-jclouds</feature>
-        <bundle>mvn:org.apache.brooklyn/brooklyn-launcher-common/${project.version}</bundle>
+        <bundle dependency="true">mvn:org.apache.brooklyn/brooklyn-launcher-common/${project.version}</bundle>
         <bundle start-level="90">mvn:org.apache.brooklyn/brooklyn-karaf-init/${project.version}</bundle>
     </feature>
 

@@ -24,11 +24,13 @@ import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 
 import java.io.File;
+import java.util.Map;
 
 import org.apache.brooklyn.api.catalog.CatalogItem;
 import org.apache.brooklyn.api.catalog.CatalogItem.CatalogItemType;
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
+import org.apache.brooklyn.api.mgmt.ha.HighAvailabilityMode;
 import org.apache.brooklyn.api.typereg.RegisteredType;
 import org.apache.brooklyn.core.BrooklynFeatureEnablement;
 import org.apache.brooklyn.core.catalog.internal.BasicBrooklynCatalog;
@@ -92,12 +94,13 @@ public class RebindCatalogItemTest extends RebindTestFixtureWithApp {
     }
 
     @Override
-    protected LocalManagementContext createNewManagementContext(File mementoDir) {
+    protected LocalManagementContext createNewManagementContext(File mementoDir, HighAvailabilityMode haMode, Map<?, ?> additionalProperties) {
         BrooklynProperties properties = BrooklynProperties.Factory.newDefault();
         properties.put(BrooklynServerConfig.BROOKLYN_CATALOG_URL, "classpath://brooklyn/entity/rebind/rebind-catalog-item-test-catalog.xml");
         return RebindTestUtils.managementContextBuilder(mementoDir, classLoader)
                 .properties(properties)
                 .forLive(useLiveManagementContext())
+                .haMode(haMode)
                 .emptyCatalog(useEmptyCatalog())
                 .buildUnstarted();
     }

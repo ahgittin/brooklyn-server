@@ -25,6 +25,7 @@ import static org.testng.Assert.assertNotNull;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.brooklyn.util.core.internal.winrm.WinRmToolResponse;
 import org.apache.brooklyn.util.exceptions.CompoundRuntimeException;
 import org.apache.brooklyn.api.location.MachineLocation;
 import org.slf4j.Logger;
@@ -36,6 +37,7 @@ import org.apache.brooklyn.core.internal.BrooklynProperties;
 import org.apache.brooklyn.core.mgmt.internal.LocalManagementContext;
 import org.apache.brooklyn.core.test.entity.LocalManagementContextForTests;
 import org.apache.brooklyn.location.ssh.SshMachineLocation;
+import org.apache.brooklyn.location.winrm.WinRmMachineLocation;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -55,6 +57,7 @@ public class AbstractJcloudsLiveTest {
     public static final String AWS_EC2_MEDIUM_HARDWARE_ID = "m3.medium";
     public static final String AWS_EC2_EUWEST_REGION_NAME = "eu-west-1";
     public static final String AWS_EC2_USEAST_REGION_NAME = "us-east-1";
+    public static final String AWS_EC2_SINGAPORE_REGION_NAME = "ap-southeast-1";
 
     public static final String RACKSPACE_PROVIDER = "rackspace-cloudservers-uk";
     
@@ -67,7 +70,7 @@ public class AbstractJcloudsLiveTest {
     protected BrooklynProperties brooklynProperties;
     protected LocalManagementContext managementContext;
     
-    protected List<JcloudsSshMachineLocation> machines;
+    protected List<JcloudsMachineLocation> machines;
     protected JcloudsLocation jcloudsLocation;
     
     @BeforeMethod(alwaysRun=true)
@@ -95,6 +98,7 @@ public class AbstractJcloudsLiveTest {
                 LOG.warn("Error destroying management context", e);
                 exceptions.add(e);
             }
+            managementContext = null;
         }
         
         // TODO Debate about whether to:
@@ -107,6 +111,10 @@ public class AbstractJcloudsLiveTest {
         }
     }
 
+    protected LocalManagementContext mgmt() {
+        return managementContext;
+    }
+    
     protected LocalManagementContext newManagementContext() {
         // loads properties, by default, but not OSGi or anything else
         return LocalManagementContextForTests.builder(true).useDefaultProperties().build();
@@ -135,6 +143,18 @@ public class AbstractJcloudsLiveTest {
         assertEquals(result, 0);
     }
 
+    protected void assertWinrmable(WinRmMachineLocation machine) {
+        // Assumes that tests are letting Brooklyn or the cloud auto-generate the password, so ok to log it.
+        // If the assertion fails, we want to know that it had a plausible-looking password etc.
+        WinRmToolResponse result;
+        try {
+            result = machine.executeCommand(ImmutableList.of("echo mySimpleWinrmCmd"));
+        } catch (Exception e) {
+            throw new RuntimeException("Error executing WinRM command on " + machine + " with config " + machine.config().getAllLocalRaw(), e);
+        }
+        assertEquals(result.getStatusCode(), 0, "stdout="+result.getStdOut()+"; stderr="+result.getStdErr());
+    }
+
     // Use this utility method to ensure machines are released on tearDown
     protected JcloudsSshMachineLocation obtainMachine(Map<?, ?> conf) throws Exception {
         assertNotNull(jcloudsLocation);
@@ -147,16 +167,24 @@ public class AbstractJcloudsLiveTest {
         return obtainMachine(ImmutableMap.of());
     }
     
-    protected void releaseMachine(JcloudsSshMachineLocation machine) {
+    protected JcloudsWinRmMachineLocation obtainWinrmMachine(Map<?, ?> conf) throws Exception {
+        assertNotNull(jcloudsLocation);
+        JcloudsWinRmMachineLocation result = (JcloudsWinRmMachineLocation)jcloudsLocation.obtain(conf);
+        machines.add(checkNotNull(result, "result"));
+        return result;
+    }
+
+    // Use this utility method to ensure machines are released on tearDown
+    protected void releaseMachine(JcloudsMachineLocation machine) {
         assertNotNull(jcloudsLocation);
         machines.remove(machine);
         jcloudsLocation.release(machine);
     }
     
-    protected List<Exception> releaseMachineSafely(Iterable<? extends JcloudsSshMachineLocation> machines) {
+    protected List<Exception> releaseMachineSafely(Iterable<? extends JcloudsMachineLocation> machines) {
         List<Exception> exceptions = Lists.newArrayList();
         
-        for (JcloudsSshMachineLocation machine : machines) {
+        for (JcloudsMachineLocation machine : machines) {
             try {
                 releaseMachine(machine);
             } catch (Exception e) {
@@ -175,8 +203,8 @@ public class AbstractJcloudsLiveTest {
 
     protected MachineLocation resumeMachine(Map<?, ?> flags) {
         assertNotNull(jcloudsLocation);
-        MachineLocation location = jcloudsLocation.resumeMachine(flags);
-        machines.add((JcloudsSshMachineLocation) location);
+        JcloudsMachineLocation location = jcloudsLocation.resumeMachine(flags);
+        machines.add(location);
         return location;
     }
 

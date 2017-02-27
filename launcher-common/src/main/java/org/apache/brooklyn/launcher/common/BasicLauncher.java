@@ -43,8 +43,10 @@ import org.apache.brooklyn.camp.CampPlatform;
 import org.apache.brooklyn.camp.brooklyn.BrooklynCampPlatformLauncherNoServer;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.catalog.internal.CatalogInitialization;
+import org.apache.brooklyn.core.entity.Attributes;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.entity.StartableApplication;
+import org.apache.brooklyn.core.entity.factory.ApplicationBuilder;
 import org.apache.brooklyn.core.entity.trait.Startable;
 import org.apache.brooklyn.core.internal.BrooklynProperties;
 import org.apache.brooklyn.core.mgmt.EntityManagementUtils;
@@ -60,6 +62,7 @@ import org.apache.brooklyn.core.mgmt.persist.PersistenceObjectStore;
 import org.apache.brooklyn.core.mgmt.rebind.PersistenceExceptionHandlerImpl;
 import org.apache.brooklyn.core.mgmt.rebind.RebindManagerImpl;
 import org.apache.brooklyn.core.mgmt.rebind.transformer.CompoundTransformer;
+import org.apache.brooklyn.core.mgmt.rebind.transformer.impl.DeleteOrphanedStateTransformer;
 import org.apache.brooklyn.core.server.BrooklynServerConfig;
 import org.apache.brooklyn.core.server.BrooklynServerPaths;
 import org.apache.brooklyn.entity.brooklynnode.BrooklynNode;
@@ -170,6 +173,7 @@ public class BasicLauncher<T extends BasicLauncher<T>> {
      * @deprecated since 0.9.0; instead use {@link #application(String)} for YAML apps, or {@link #application(EntitySpec)}.
      *             Note that apps are now auto-managed on construction through EntitySpec/YAML.
      */
+    @Deprecated
     public T application(org.apache.brooklyn.core.entity.factory.ApplicationBuilder appBuilder) {
         LOG.warn("Caller supplied ApplicationBuilder; convert to EntitySpec as this style builder may not be supported in future.");
         appBuildersToManage.add(checkNotNull(appBuilder, "appBuilder"));
@@ -373,13 +377,16 @@ public class BasicLauncher<T extends BasicLauncher<T>> {
                 managementContext, destinationLocationSpec, destinationDir);
             BrooklynPersistenceUtils.writeMemento(managementContext, memento, destinationObjectStore);
             BrooklynPersistenceUtils.writeManagerMemento(managementContext, planeState, destinationObjectStore);
-
         } catch (Exception e) {
             Exceptions.propagateIfFatal(e);
             LOG.debug("Error copying persisted state (rethrowing): " + e, e);
             throw new FatalRuntimeException("Error copying persisted state: " +
                 Exceptions.collapseText(e), e);
         }
+    }
+
+    public void cleanOrphanedState(String destinationDir, @Nullable String destinationLocationSpec) {
+        copyPersistedState(destinationDir, destinationLocationSpec, DeleteOrphanedStateTransformer.builder().build());
     }
 
     /** @deprecated since 0.7.0 use {@link #copyPersistedState} instead */
@@ -719,6 +726,15 @@ public class BasicLauncher<T extends BasicLauncher<T>> {
                 try {
                     LOG.info("Starting brooklyn application {} in location{} {}", new Object[] { app, locations.size()!=1?"s":"", locations });
                     ((Startable)app).start(locations);
+                    Entities.dumpInfo(app);
+                    String sensors = "";
+                    if (app.getAttribute(Attributes.MAIN_URI_MAPPED_PUBLIC)!=null) {
+                        sensors = ": "+app.getAttribute(Attributes.MAIN_URI_MAPPED_PUBLIC);
+                    } else if (app.getAttribute(Attributes.MAIN_URI)!=null) {
+                        sensors += ": "+app.getAttribute(Attributes.MAIN_URI);
+                    }
+                    LOG.info("Started brooklyn application {} in location{} {}{}", new Object[] { app, locations.size()!=1?"s":"", locations,
+                        sensors });
                 } catch (Exception e) {
                     LOG.error("Error starting "+app+": "+Exceptions.collapseText(e), Exceptions.getFirstInteresting(e));
                     appExceptions.add(Exceptions.collapse(e));

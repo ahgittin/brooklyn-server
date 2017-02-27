@@ -16,12 +16,10 @@
 # under the License.
 #
 brooklyn.catalog:
-  version: "0.10.0-SNAPSHOT" # BROOKLYN_VERSION
+  version: "0.11.0-SNAPSHOT" # BROOKLYN_VERSION
   items:
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.core
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
+  # org.apache.brooklyn.core
+  - itemType: entity
     items:
      - id: org.apache.brooklyn.entity.group.QuarantineGroup
        item:
@@ -63,10 +61,8 @@ brooklyn.catalog:
        item:
          type: org.apache.brooklyn.entity.group.DynamicFabric
 
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.policy
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    items:
+  # org.apache.brooklyn.policy
+  - items:
     - id: org.apache.brooklyn.policy.ha.ConnectionFailureDetector
       itemType: policy
       item:
@@ -110,10 +106,8 @@ brooklyn.catalog:
         name: Auto-scaler
         description: Policy that is attached to a Resizable entity and dynamically 
 
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-base
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
+    # org.apache.brooklyn.software-base
+  - itemType: entity
     items:
     - id: org.apache.brooklyn.entity.machine.MachineEntity
       item:
@@ -124,6 +118,7 @@ brooklyn.catalog:
       item:
         type: org.apache.brooklyn.entity.software.base.SameServerEntity
     - id: org.apache.brooklyn.entity.chef.ChefEntity
+      iconUrl: https://upload.wikimedia.org/wikipedia/en/5/56/Chef_Software_Inc._company_logo.png
       item:
         type: org.apache.brooklyn.entity.chef.ChefEntity
     - id: org.apache.brooklyn.entity.brooklynnode.BrooklynEntityMirror
@@ -167,341 +162,34 @@ brooklyn.catalog:
         name: Server Pool
         description: Creates a pre-allocated server pool, which other applications can deploy to
 
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-webapp
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
-    items:
-    - id: org.apache.brooklyn.entity.webapp.nodejs.NodeJsWebAppService
-      item:
-        type: org.apache.brooklyn.entity.webapp.nodejs.NodeJsWebAppService
-        name: Node.JS Application
-    - id: org.apache.brooklyn.entity.webapp.jboss.JBoss7Server
-      item:
-        type: org.apache.brooklyn.entity.webapp.jboss.JBoss7Server
-        name: JBoss Application Server 7
-        description: AS7 - an open source Java application server from JBoss
-    - id: org.apache.brooklyn.entity.proxy.nginx.UrlMapping
-      item:
-        type: org.apache.brooklyn.entity.proxy.nginx.UrlMapping
-    - id: org.apache.brooklyn.entity.webapp.DynamicWebAppFabric
-      item:
-        type: org.apache.brooklyn.entity.webapp.DynamicWebAppFabric
-    - id: org.apache.brooklyn.entity.proxy.nginx.NginxController
-      item:
-        type: org.apache.brooklyn.entity.proxy.nginx.NginxController
-        name: Nginx Server
-        description: A single Nginx server. Provides HTTP and reverse proxy services
-    - id: org.apache.brooklyn.entity.webapp.jboss.JBoss6Server
-      item:
-        type: org.apache.brooklyn.entity.webapp.jboss.JBoss6Server
-        name: JBoss Application Server 6
-        description: AS6 -  an open source Java application server from JBoss
-    - id: org.apache.brooklyn.entity.webapp.tomcat.Tomcat8Server
-      item:
-        type: org.apache.brooklyn.entity.webapp.tomcat.Tomcat8Server
-        name: Tomcat Server
-    - id: org.apache.brooklyn.entity.proxy.LoadBalancerCluster
-      item:
-        type: org.apache.brooklyn.entity.proxy.LoadBalancerCluster
-    - id: org.apache.brooklyn.entity.webapp.jetty.Jetty6Server
-      item:
-        type: org.apache.brooklyn.entity.webapp.jetty.Jetty6Server
-        name: Jetty6 Server
-        description: Old version (v6 @ Mortbay) of the popular Jetty webapp container
-    - id: org.apache.brooklyn.entity.webapp.DynamicWebAppCluster
-      item:
-        type: org.apache.brooklyn.entity.webapp.DynamicWebAppCluster
-        name: Dynamic Web-app Cluster
-        description: A cluster of web-apps, which can be dynamically re-sized; this does not include a load-balancer
-    - id: org.apache.brooklyn.entity.webapp.tomcat.TomcatServer
-      item:
-        type: org.apache.brooklyn.entity.webapp.tomcat.TomcatServer
-        name: Tomcat Server
-    - id: org.apache.brooklyn.entity.dns.geoscaling.GeoscalingDnsService
-      item:
-        type: org.apache.brooklyn.entity.dns.geoscaling.GeoscalingDnsService
-    - id: org.apache.brooklyn.entity.webapp.ControlledDynamicWebAppCluster
-      item:
-        type: org.apache.brooklyn.entity.webapp.ControlledDynamicWebAppCluster
-        name: Controlled Dynamic Web-app Cluster
-        description: A cluster of load-balanced web-apps, which can be dynamically re-sized
 
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-osgi
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
+  # org.apache.brooklyn.test-framework
+  - itemType: entity
     items:
-    - id: org.apache.brooklyn.entity.osgi.karaf.KarafContainer
+    - id: org.apache.brooklyn.test.framework.TestSshCommand
       item:
-        type: org.apache.brooklyn.entity.osgi.karaf.KarafContainer
-        name: Karaf
-        description: Apache Karaf is a small OSGi based runtime which provides a lightweight container onto which various components and applications can be deployed.
-
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-nosql
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
-    items:
-    - id: org.apache.brooklyn.entity.nosql.redis.RedisStore
+        type: org.apache.brooklyn.test.framework.TestSshCommand
+    - id: org.apache.brooklyn.test.framework.SimpleShellCommandTest
       item:
-        type: org.apache.brooklyn.entity.nosql.redis.RedisStore
-        name: Redis Server
-        description: Redis is an open-source, networked, in-memory, key-value data store with optional durability
-    - id: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBRouterCluster
+        type: org.apache.brooklyn.test.framework.SimpleShellCommandTest
+    - id: org.apache.brooklyn.test.framework.ParallelTestCase
       item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBRouterCluster
-    - id: org.apache.brooklyn.entity.nosql.cassandra.CassandraDatacenter
+        type: org.apache.brooklyn.test.framework.ParallelTestCase
+    - id: org.apache.brooklyn.test.framework.TestCase
       item:
-        type: org.apache.brooklyn.entity.nosql.cassandra.CassandraDatacenter
-        name: Apache Cassandra Datacenter Cluster
-        description: Cassandra is a highly scalable, eventually 
-    - id: org.apache.brooklyn.entity.nosql.solr.SolrServer
+        type: org.apache.brooklyn.test.framework.TestCase
+    - id: org.apache.brooklyn.test.framework.InfrastructureDeploymentTestCase
       item:
-        type: org.apache.brooklyn.entity.nosql.solr.SolrServer
-        name: Apache Solr Node
-        description: Solr is the popular, blazing fast open source enterprise search 
-    - id: org.apache.brooklyn.entity.nosql.couchdb.CouchDBNode
+        type: org.apache.brooklyn.test.framework.InfrastructureDeploymentTestCase
+    - id: org.apache.brooklyn.test.framework.TestSensor
       item:
-        type: org.apache.brooklyn.entity.nosql.couchdb.CouchDBNode
-        name: CouchDB Node
-    - id: org.apache.brooklyn.entity.nosql.redis.RedisShard
+        type: org.apache.brooklyn.test.framework.TestSensor
+    - id: org.apache.brooklyn.test.framework.TestEffector
       item:
-        type: org.apache.brooklyn.entity.nosql.redis.RedisShard
-    - id: org.apache.brooklyn.entity.nosql.redis.RedisCluster
+        type: org.apache.brooklyn.test.framework.TestEffector
+    - id: org.apache.brooklyn.test.framework.TestHttpCall
       item:
-        type: org.apache.brooklyn.entity.nosql.redis.RedisCluster
-        name: Redis Cluster
-        description: Redis is an open-source, networked, in-memory, key-value data store with optional durability
-    - id: org.apache.brooklyn.entity.nosql.hazelcast.HazelcastCluster
+        type: org.apache.brooklyn.test.framework.TestHttpCall
+    - id: org.apache.brooklyn.test.framework.LoopOverGroupMembersTestCase
       item:
-        type: org.apache.brooklyn.entity.nosql.hazelcast.HazelcastCluster
-        name: Hazelcast Cluster
-        description: Hazelcast is a clustering and highly scalable data distribution platform for Java.
-    - id: org.apache.brooklyn.entity.nosql.couchdb.CouchDBCluster
-      item:
-        type: org.apache.brooklyn.entity.nosql.couchdb.CouchDBCluster
-    - id: org.apache.brooklyn.entity.nosql.couchbase.CouchbaseNode
-      item:
-        type: org.apache.brooklyn.entity.nosql.couchbase.CouchbaseNode
-        name: CouchBase Node
-        description: Couchbase Server is an open source, distributed (shared-nothing architecture) 
-    - id: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBShardedDeployment
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBShardedDeployment
-        name: MongoDB Sharded Deployment
-    - id: org.apache.brooklyn.entity.nosql.cassandra.CassandraNode
-      item:
-        type: org.apache.brooklyn.entity.nosql.cassandra.CassandraNode
-        name: Apache Cassandra Node
-        description: Cassandra is a highly scalable, eventually 
-    - id: org.apache.brooklyn.entity.nosql.riak.RiakNode
-      item:
-        type: org.apache.brooklyn.entity.nosql.riak.RiakNode
-        name: Riak Node
-        description: Riak is a distributed NoSQL key-value data store that offers 
-    - id: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBConfigServerCluster
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBConfigServerCluster
-    - id: org.apache.brooklyn.entity.nosql.mongodb.MongoDBServer
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.MongoDBServer
-        name: MongoDB Server
-    - id: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBRouter
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBRouter
-        name: MongoDB Router
-    - id: org.apache.brooklyn.entity.nosql.mongodb.MongoDBReplicaSet
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.MongoDBReplicaSet
-    - id: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBShardCluster
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBShardCluster
-    - id: org.apache.brooklyn.entity.nosql.mongodb.MongoDBClient
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.MongoDBClient
-    - id: org.apache.brooklyn.entity.nosql.elasticsearch.ElasticSearchNode
-      item:
-        type: org.apache.brooklyn.entity.nosql.elasticsearch.ElasticSearchNode
-        name: Elastic Search Node
-        description: Elasticsearch is an open-source search server based on Lucene. 
-    - id: org.apache.brooklyn.entity.nosql.cassandra.CassandraFabric
-      item:
-        type: org.apache.brooklyn.entity.nosql.cassandra.CassandraFabric
-        name: Apache Cassandra Database Fabric
-        description: Cassandra is a highly scalable, eventually 
-    - id: org.apache.brooklyn.entity.nosql.elasticsearch.ElasticSearchCluster
-      item:
-        type: org.apache.brooklyn.entity.nosql.elasticsearch.ElasticSearchCluster
-        name: Elastic Search Cluster
-        description: Elasticsearch is an open-source search server based on Lucene. 
-    - id: org.apache.brooklyn.entity.nosql.cassandra.CassandraCluster
-      item:
-        type: org.apache.brooklyn.entity.nosql.cassandra.CassandraCluster
-    - id: org.apache.brooklyn.entity.nosql.redis.RedisSlave
-      item:
-        type: org.apache.brooklyn.entity.nosql.redis.RedisSlave
-    - id: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBConfigServer
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.sharding.MongoDBConfigServer
-    - id: org.apache.brooklyn.entity.nosql.couchbase.CouchbaseCluster
-      item:
-        type: org.apache.brooklyn.entity.nosql.couchbase.CouchbaseCluster
-        name: CouchBase Cluster
-        description: Couchbase is an open source, distributed (shared-nothing architecture) 
-    - id: org.apache.brooklyn.entity.nosql.couchbase.CouchbaseSyncGateway
-      item:
-        type: org.apache.brooklyn.entity.nosql.couchbase.CouchbaseSyncGateway
-    - id: org.apache.brooklyn.entity.nosql.hazelcast.HazelcastNode
-      item:
-        type: org.apache.brooklyn.entity.nosql.hazelcast.HazelcastNode
-        name: Hazelcast Node
-        description: Hazelcast is a clustering and highly scalable data distribution platform for Java.
-    - id: org.apache.brooklyn.entity.nosql.riak.RiakCluster
-      item:
-        type: org.apache.brooklyn.entity.nosql.riak.RiakCluster
-        name: Riak Cluster
-        description: Riak is a distributed NoSQL key-value data store that offers 
-    - id: org.apache.brooklyn.entity.nosql.mongodb.sharding.CoLocatedMongoDBRouter
-      item:
-        type: org.apache.brooklyn.entity.nosql.mongodb.sharding.CoLocatedMongoDBRouter
-
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-network
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
-    items:
-    - id: org.apache.brooklyn.entity.network.bind.BindDnsServer
-      description: BIND is an Internet Domain Name Server.
-      item:
-        type: org.apache.brooklyn.entity.network.bind.BindDnsServer
-        name: BIND
-
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-monitoring
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
-    items:
-    - id: org.apache.brooklyn.entity.monitoring.monit.MonitNode
-      item:
-        type: org.apache.brooklyn.entity.monitoring.monit.MonitNode
-        name: Monit Node
-        description: Monit is a free open source utility for managing and monitoring, processes, programs, files, directories and filesystems on a UNIX system
-
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-messaging
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
-    items:
-    - id: org.apache.brooklyn.entity.messaging.activemq.ActiveMQBroker
-      item:
-        type: org.apache.brooklyn.entity.messaging.activemq.ActiveMQBroker
-        name: ActiveMQ Broker
-        description: ActiveMQ is an open source message broker which fully implements the Java Message Service 1.1 (JMS)
-    - id: org.apache.brooklyn.entity.messaging.qpid.QpidBroker
-      item:
-        type: org.apache.brooklyn.entity.messaging.qpid.QpidBroker
-        name: Qpid Broker
-        description: Apache Qpid is an open-source messaging system, implementing the Advanced Message Queuing Protocol (AMQP)
-    - id: org.apache.brooklyn.entity.messaging.storm.Storm
-      item:
-        type: org.apache.brooklyn.entity.messaging.storm.Storm
-        name: Storm Node
-        description: Apache Storm is a distributed realtime computation system. 
-    - id: org.apache.brooklyn.entity.messaging.kafka.KafkaCluster
-      item:
-        type: org.apache.brooklyn.entity.messaging.kafka.KafkaCluster
-        name: Kafka
-        description: Apache Kafka is a distributed publish-subscribe messaging system
-    - id: org.apache.brooklyn.entity.messaging.activemq.ActiveMQQueue
-      item:
-        type: org.apache.brooklyn.entity.messaging.activemq.ActiveMQQueue
-    - id: org.apache.brooklyn.entity.zookeeper.ZooKeeperEnsemble
-      item:
-        type: org.apache.brooklyn.entity.zookeeper.ZooKeeperEnsemble
-        name: ZooKeeper ensemble
-        description: A cluster of ZooKeeper servers. 
-    - id: org.apache.brooklyn.entity.messaging.kafka.KafkaZooKeeper
-      item:
-        type: org.apache.brooklyn.entity.messaging.kafka.KafkaZooKeeper
-    - id: org.apache.brooklyn.entity.messaging.activemq.ActiveMQTopic
-      item:
-        type: org.apache.brooklyn.entity.messaging.activemq.ActiveMQTopic
-    - id: org.apache.brooklyn.entity.messaging.qpid.QpidQueue
-      item:
-        type: org.apache.brooklyn.entity.messaging.qpid.QpidQueue
-    - id: org.apache.brooklyn.entity.zookeeper.ZooKeeperNode
-      item:
-        type: org.apache.brooklyn.entity.zookeeper.ZooKeeperNode
-        name: ZooKeeper Node
-        description: Apache ZooKeeper is a server which enables 
-    - id: org.apache.brooklyn.entity.messaging.rabbit.RabbitBroker
-      item:
-        type: org.apache.brooklyn.entity.messaging.rabbit.RabbitBroker
-        name: RabbitMQ Broker
-        description: RabbitMQ is an open source message broker software (i.e. message-oriented middleware) that implements the Advanced Message Queuing Protocol (AMQP) standard
-    - id: org.apache.brooklyn.entity.messaging.kafka.KafkaBroker
-      item:
-        type: org.apache.brooklyn.entity.messaging.kafka.KafkaBroker
-    - id: org.apache.brooklyn.entity.messaging.qpid.QpidTopic
-      item:
-        type: org.apache.brooklyn.entity.messaging.qpid.QpidTopic
-    - id: org.apache.brooklyn.entity.messaging.storm.StormDeployment
-      item:
-        type: org.apache.brooklyn.entity.messaging.storm.StormDeployment
-        name: Storm Deployment
-        description: A Storm cluster. Apache Storm is a distributed realtime computation system. 
-
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-database
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
-    items:
-    - id: org.apache.brooklyn.entity.database.crate.CrateNode
-      item:
-        type: org.apache.brooklyn.entity.database.crate.CrateNode
-    - id: org.apache.brooklyn.entity.database.mysql.MySqlNode
-      item:
-        type: org.apache.brooklyn.entity.database.mysql.MySqlNode
-        name: MySql Node
-        description: MySql is an open source relational database management system (RDBMS)
-    - id: org.apache.brooklyn.entity.database.mysql.MySqlCluster
-      item:
-        type: org.apache.brooklyn.entity.database.mysql.MySqlCluster
-        name: MySql Master-Slave cluster
-        description: Sets up a cluster of MySQL nodes using master-slave relation and binary logging
-    - id: org.apache.brooklyn.entity.database.postgresql.PostgreSqlNode
-      item:
-        type: org.apache.brooklyn.entity.database.postgresql.PostgreSqlNode
-        name: PostgreSQL Node
-        description: PostgreSQL is an object-relational database management system (ORDBMS)
-    - id: org.apache.brooklyn.entity.database.rubyrep.RubyRepNode
-      item:
-        type: org.apache.brooklyn.entity.database.rubyrep.RubyRepNode
-    - id: org.apache.brooklyn.entity.database.mariadb.MariaDbNode
-      item:
-        type: org.apache.brooklyn.entity.database.mariadb.MariaDbNode
-        name: MariaDB Node
-        description: MariaDB is an open source relational database management system (RDBMS)
-
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-cm-salt
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
-    items:
-    - id: org.apache.brooklyn.entity.cm.salt.SaltEntity
-      item:
-        type: org.apache.brooklyn.entity.cm.salt.SaltEntity
-        name: SaltEntity
-        description: Software managed by Salt CM
-
-  - brooklyn.libraries:
-    - name: org.apache.brooklyn.software-cm-ansible
-      version: "0.10.0.SNAPSHOT" # BROOKLYN_VERSION
-    itemType: entity
-    items:
-    - id: org.apache.brooklyn.entity.cm.ansible.AnsibleEntity
-      item:
-        type: org.apache.brooklyn.entity.cm.ansible.AnsibleEntity
-        name: AnsibleEntity
-        description: Software managed by Ansible CM
+        type: org.apache.brooklyn.test.framework.LoopOverGroupMembersTestCase

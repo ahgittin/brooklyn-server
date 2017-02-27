@@ -19,7 +19,9 @@
 package org.apache.brooklyn.core.sensor.ssh;
 
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
+import org.apache.brooklyn.api.entity.Entity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,8 +35,10 @@ import org.apache.brooklyn.api.entity.EntityInitializer;
 import org.apache.brooklyn.api.entity.EntityLocal;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
+import org.apache.brooklyn.core.config.MapConfigKey;
 import org.apache.brooklyn.core.effector.AddSensor;
 import org.apache.brooklyn.core.entity.BrooklynConfigKeys;
+import org.apache.brooklyn.core.entity.EntityInternal;
 import org.apache.brooklyn.core.sensor.http.HttpRequestSensor;
 import org.apache.brooklyn.feed.ssh.SshFeed;
 import org.apache.brooklyn.feed.ssh.SshPollConfig;
@@ -42,6 +46,9 @@ import org.apache.brooklyn.feed.ssh.SshValueFunctions;
 import org.apache.brooklyn.util.collections.MutableMap;
 import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.core.flags.TypeCoercions;
+import org.apache.brooklyn.util.core.json.ShellEnvironmentSerializer;
+import org.apache.brooklyn.util.core.task.Tasks;
+import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.os.Os;
 import org.apache.brooklyn.util.text.Strings;
 
@@ -61,17 +68,19 @@ public final class SshCommandSensor<T> extends AddSensor<T> {
     public static final ConfigKey<String> SENSOR_EXECUTION_DIR = ConfigKeys.newStringConfigKey("executionDir", "Directory where the command should run; "
         + "if not supplied, executes in the entity's run dir (or home dir if no run dir is defined); "
         + "use '~' to always execute in the home dir, or 'custom-feed/' to execute in a custom-feed dir relative to the run dir");
+    public static final MapConfigKey<Object> SENSOR_SHELL_ENVIRONMENT = BrooklynConfigKeys.SHELL_ENVIRONMENT;
 
     protected final String command;
     protected final String executionDir;
+    protected final Map<String,Object> sensorEnv;
 
     public SshCommandSensor(final ConfigBag params) {
         super(params);
 
         // TODO create a supplier for the command string to support attribute embedding
-        command = Preconditions.checkNotNull(params.get(SENSOR_COMMAND), "command");
-
+        command = Preconditions.checkNotNull(params.get(SENSOR_COMMAND), "SSH command must be supplied when defining this sensor");
         executionDir = params.get(SENSOR_EXECUTION_DIR);
+        sensorEnv = params.get(SENSOR_SHELL_ENVIRONMENT);
     }
 
     @Override
@@ -85,7 +94,21 @@ public final class SshCommandSensor<T> extends AddSensor<T> {
         Supplier<Map<String,String>> envSupplier = new Supplier<Map<String,String>>() {
             @Override
             public Map<String, String> get() {
-                return MutableMap.copyOf(Strings.toStringMap(entity.getConfig(BrooklynConfigKeys.SHELL_ENVIRONMENT), ""));
+                Map<String, Object> env = MutableMap.copyOf(entity.getConfig(BrooklynConfigKeys.SHELL_ENVIRONMENT));
+
+                // Add the shell environment entries from our configuration
+                if (sensorEnv != null) env.putAll(sensorEnv);
+
+                // Try to resolve the configuration in the env Map
+                try {
+                    env = (Map<String, Object>) Tasks.resolveDeepValue(env, Object.class, ((EntityInternal) entity).getExecutionContext());
+                } catch (InterruptedException | ExecutionException e) {
+                    Exceptions.propagateIfFatal(e);
+                }
+
+                // Convert the environment into strings with the serializer
+                ShellEnvironmentSerializer serializer = new ShellEnvironmentSerializer(((EntityInternal) entity).getManagementContext());
+                return serializer.serialize(env);
             }
         };
 
@@ -105,18 +128,20 @@ public final class SshCommandSensor<T> extends AddSensor<T> {
                 .onSuccess(Functions.compose(new Function<String, T>() {
                         @Override
                         public T apply(String input) {
-                            return TypeCoercions.coerce(Strings.trimEnd(input), getType(entity, type));
+                            return TypeCoercions.coerce(Strings.trimEnd(input), (Class<T>) sensor.getType());
                         }}, SshValueFunctions.stdout()));
 
-        SshFeed.builder()
+        SshFeed feed = SshFeed.builder()
                 .entity(entity)
                 .onlyIfServiceUp()
                 .poll(pollConfig)
                 .build();
+
+        entity.addFeed(feed);
     }
 
     @Beta
-    public static String makeCommandExecutingInDirectory(String command, String executionDir, EntityLocal entity) {
+    public static String makeCommandExecutingInDirectory(String command, String executionDir, Entity entity) {
         String finalCommand = command;
         String execDir = executionDir;
         if (Strings.isBlank(execDir)) {

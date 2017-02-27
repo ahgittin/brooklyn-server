@@ -23,7 +23,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.io.InputStream;
 import java.net.URL;
-import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -31,6 +30,7 @@ import java.util.concurrent.ExecutionException;
 import org.apache.brooklyn.api.mgmt.ExecutionContext;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.config.ConfigKey.HasConfigKey;
+import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.internal.BrooklynProperties;
 import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.core.flags.TypeCoercions;
@@ -57,7 +57,7 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
     private static final Logger LOG = LoggerFactory.getLogger(DeferredBrooklynProperties.class);
 
     private static final String BROOKLYN_YAML_PREFIX = "$brooklyn:";
-    
+
     private final BrooklynProperties delegate;
     private final ManagementContextInternal mgmt;
 
@@ -65,7 +65,7 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
         this.delegate = checkNotNull(delegate, "delegate");
         this.mgmt = checkNotNull(mgmt, "mgmt");
     }
-    
+
     private Object transform(ConfigKey<?> key, Object value) {
         if (value instanceof CharSequence) {
             String raw = value.toString();
@@ -83,7 +83,7 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
         }
         return value;
     }
-    
+
     private <T> T resolve(ConfigKey<T> key, Object value) {
         Object transformed = transform(key, value);
 
@@ -101,7 +101,33 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
 
         return TypeCoercions.coerce(result, key.getTypeToken());
     }
+
+    @Override
+    public boolean containsKey(String key) {
+        return delegate.containsKey(key);
+    }
+
+    @Override
+    public boolean containsKey(ConfigKey<?> key) {
+        return delegate.containsKey(key);
+    }
+
+    @Override
+    public boolean remove(String key) {
+        return delegate.remove(key);
+    }
     
+    @Override
+    public boolean remove(ConfigKey<?> key) {
+        return delegate.remove(key);
+    }
+    
+    @Override
+    public Object getConfig(String key) {
+        Object raw = delegate.getConfig(key);
+        return resolve(ConfigKeys.newConfigKey(Object.class, key), raw);
+    }
+
     @Override
     public <T> T getConfig(ConfigKey<T> key) {
         T raw = delegate.getConfig(key);
@@ -126,21 +152,25 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
         return resolve(key, raw);
     }
 
-    @Deprecated
     @Override
-    public Object getRawConfig(ConfigKey<?> key) {
-        return transform(key, delegate.getRawConfig(key));
+    public Maybe<Object> getConfigRaw(ConfigKey<?> key) {
+        return getConfigRaw(key, true);
     }
-    
-    @Override
+
+    @Override @Deprecated
     public Maybe<Object> getConfigRaw(ConfigKey<?> key, boolean includeInherited) {
         Maybe<Object> result = delegate.getConfigRaw(key, includeInherited);
         return (result.isPresent()) ? Maybe.of(transform(key, result.get())) : Maybe.absent();
     }
 
     @Override
-    public Map<ConfigKey<?>, Object> getAllConfig() {
-        Map<ConfigKey<?>, Object> raw = delegate.getAllConfig();
+    public Maybe<Object> getConfigLocalRaw(ConfigKey<?> key) {
+        return getConfigRaw(key, false);
+    }
+
+    @Override
+    public Map<ConfigKey<?>,Object> getAllConfigLocalRaw() {
+        Map<ConfigKey<?>, Object> raw = delegate.getAllConfigLocalRaw();
         Map<ConfigKey<?>, Object> result = Maps.newLinkedHashMap();
         for (Map.Entry<ConfigKey<?>, Object> entry : raw.entrySet()) {
             result.put(entry.getKey(), transform(entry.getKey(), entry.getValue()));
@@ -148,9 +178,14 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
         return result;
     }
 
+    @Override @Deprecated
+    public Map<ConfigKey<?>, Object> getAllConfig() {
+        return getAllConfigLocalRaw();
+    }
+
     @Override
     public Map<String, Object> asMapWithStringKeys() {
-        Map<ConfigKey<?>, Object> raw = delegate.getAllConfig();
+        Map<ConfigKey<?>, Object> raw = delegate.getAllConfigLocalRaw();
         Map<String, Object> result = Maps.newLinkedHashMap();
         for (Map.Entry<ConfigKey<?>, Object> entry : raw.entrySet()) {
             result.put(entry.getKey().getName(), transform(entry.getKey(), entry.getValue()));
@@ -177,7 +212,7 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
     public String getFirst(String ...keys) {
         return delegate.getFirst(keys);
     }
-    
+
     /**
      * Discouraged; returns the String so if it is external config, it will be the 
      * {@code $brooklyn:external(...)} format.
@@ -192,6 +227,27 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
     public BrooklynProperties submap(Predicate<ConfigKey<?>> filter) {
         BrooklynProperties submap = delegate.submap(filter);
         return new DeferredBrooklynProperties(submap, mgmt);
+    }
+
+    @Override
+    public BrooklynProperties submapByName(Predicate<? super String> filter) {
+        BrooklynProperties submap = delegate.submapByName(filter);
+        return new DeferredBrooklynProperties(submap, mgmt);
+    }
+
+    @Override @Deprecated
+    public Set<ConfigKey<?>> findKeys(Predicate<? super ConfigKey<?>> filter) {
+        return delegate.findKeys(filter);
+    }
+
+    @Override
+    public Set<ConfigKey<?>> findKeysDeclared(Predicate<? super ConfigKey<?>> filter) {
+        return delegate.findKeysDeclared(filter);
+    }
+
+    @Override
+    public Set<ConfigKey<?>> findKeysPresent(Predicate<? super ConfigKey<?>> filter) {
+        return delegate.findKeysPresent(filter);
     }
 
     @Override
@@ -224,13 +280,13 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
         delegate.addFrom(i);
         return this;
     }
-    
+
     @Override
     public BrooklynProperties addFrom(File f) {
         delegate.addFrom(f);
         return this;
     }
-    
+
     @Override
     public BrooklynProperties addFrom(URL u) {
         delegate.addFrom(u);
@@ -276,7 +332,7 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
     public void putAll(Map vals) {
         delegate.putAll(vals);
     }
-    
+
     @Override
     public <T> Object put(HasConfigKey<T> key, T value) {
         return delegate.put(key, value);
@@ -286,17 +342,17 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
     public <T> Object put(ConfigKey<T> key, T value) {
         return delegate.put(key, value);
     }
-    
+
     @Override
     public <T> boolean putIfAbsent(ConfigKey<T> key, T value) {
         return delegate.putIfAbsent(key, value);
     }
-    
-    
+
+
     //////////////////////////////////////////////////////////////////////////////////
-    // Methods below from java.util.LinkedHashMap, which BrooklynProperties extends //
+    // Methods below from ConfigMap, which BrooklynProperties extends               //
     //////////////////////////////////////////////////////////////////////////////////
-    
+
     @Override
     public int size() {
         return delegate.size();
@@ -307,49 +363,10 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
         return delegate.isEmpty();
     }
 
-    @Override
-    public boolean containsKey(Object key) {
-        return delegate.containsKey(key);
-    }
-
-    @Override
-    public boolean containsValue(Object value) {
-        return delegate.containsValue(value);
-    }
-
-    @Override
-    public Object get(Object key) {
-        return delegate.get(key);
-    }
-
-    @Override
-    public Object remove(Object key) {
-        return delegate.remove(key);
-    }
-
-    @Override
-    public void clear() {
-        delegate.clear();
-    }
-
-    @Override
-    @SuppressWarnings("rawtypes")
-    public Set keySet() {
-        return delegate.keySet();
-    }
-
-    @Override
-    @SuppressWarnings("rawtypes")
-    public Collection values() {
-        return delegate.values();
-    }
+    //////////////////////////////////////////////////////////////////////////////////
+    // Methods below from Object                                                    //
+    //////////////////////////////////////////////////////////////////////////////////
     
-    @Override
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    public Set<Map.Entry> entrySet() {
-        return delegate.entrySet();
-    }
-
     @Override
     public boolean equals(Object o) {
         return delegate.equals(o);
@@ -359,7 +376,7 @@ public class DeferredBrooklynProperties implements BrooklynProperties {
     public int hashCode() {
         return delegate.hashCode();
     }
-    
+
     // put(Object, Object) already overridden
     //@Override
     //public Object put(Object key, Object value) {

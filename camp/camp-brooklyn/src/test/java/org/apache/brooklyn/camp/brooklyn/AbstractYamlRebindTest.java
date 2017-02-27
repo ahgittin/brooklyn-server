@@ -20,44 +20,44 @@ package org.apache.brooklyn.camp.brooklyn;
 
 import java.io.Reader;
 import java.io.StringReader;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.brooklyn.api.catalog.CatalogItem;
+import org.apache.brooklyn.api.entity.Application;
 import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.mgmt.Task;
-import org.apache.brooklyn.camp.brooklyn.BrooklynCampPlatform;
-import org.apache.brooklyn.camp.brooklyn.BrooklynCampPlatformLauncherNoServer;
-import org.apache.brooklyn.camp.spi.Assembly;
-import org.apache.brooklyn.camp.spi.AssemblyTemplate;
+import org.apache.brooklyn.camp.brooklyn.spi.creation.CampTypePlanTransformer;
 import org.apache.brooklyn.core.catalog.internal.CatalogUtils;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.entity.StartableApplication;
+import org.apache.brooklyn.core.entity.trait.Startable;
 import org.apache.brooklyn.core.mgmt.BrooklynTaskTags;
 import org.apache.brooklyn.core.mgmt.internal.LocalManagementContext;
 import org.apache.brooklyn.core.mgmt.rebind.RebindOptions;
 import org.apache.brooklyn.core.mgmt.rebind.RebindTestFixture;
+import org.apache.brooklyn.core.typereg.RegisteredTypeLoadingContexts;
+import org.apache.brooklyn.util.collections.MutableMap;
 import org.apache.brooklyn.util.core.ResourceUtils;
-import org.apache.brooklyn.util.core.config.ConfigBag;
+import org.apache.brooklyn.util.stream.Streams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
 
 public class AbstractYamlRebindTest extends RebindTestFixture<StartableApplication> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(AbstractYamlTest.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AbstractYamlRebindTest.class);
     protected static final String TEST_VERSION = "0.1.2";
 
     protected BrooklynCampPlatform platform;
     protected BrooklynCampPlatformLauncherNoServer launcher;
     private boolean forceUpdate;
-    
+
     @BeforeMethod(alwaysRun = true)
     @Override
     public void setUp() throws Exception {
@@ -82,6 +82,7 @@ public class AbstractYamlRebindTest extends RebindTestFixture<StartableApplicati
         }
     }
 
+    @Override
     protected StartableApplication rebind(RebindOptions options) throws Exception {
         StartableApplication result = super.rebind(options);
         if (launcher != null) {
@@ -97,20 +98,21 @@ public class AbstractYamlRebindTest extends RebindTestFixture<StartableApplicati
         }
         return result;
     }
-    
+
     @Override
     protected StartableApplication createApp() {
         return null;
     }
 
+    @Override
     protected ManagementContext mgmt() {
         return (newManagementContext != null) ? newManagementContext : origManagementContext;
     }
-    
+
     ///////////////////////////////////////////////////
     // TODO code below is duplicate of AbstractYamlTest
     ///////////////////////////////////////////////////
-    
+
     protected void waitForApplicationTasks(Entity app) {
         Set<Task<?>> tasks = BrooklynTaskTags.getTasksInEntityContext(mgmt().getExecutionManager(), app);
         getLogger().info("Waiting on " + tasks.size() + " task(s)");
@@ -127,35 +129,40 @@ public class AbstractYamlRebindTest extends RebindTestFixture<StartableApplicati
         return new StringReader(builder.toString());
     }
     
+    /**
+     * @deprecated since 0.11.0, use {@link #createAndStartApplication(String)} instead,
+     *             in the same way as {@link AbstractYamlTest}.
+     */
+    @Deprecated
+    protected Entity createAndStartApplication(Reader input) throws Exception {
+        return createAndStartApplication(Streams.readFully(input));
+    }
+
     protected Entity createAndStartApplication(String... multiLineYaml) throws Exception {
         return createAndStartApplication(joinLines(multiLineYaml));
     }
-    
+
     protected Entity createAndStartApplication(String input) throws Exception {
-        return createAndStartApplication(new StringReader(input));
+        return createAndStartApplication(input, MutableMap.<String,String>of());
+    }
+    
+    protected Entity createAndStartApplication(String input, Map<String,?> startParameters) throws Exception {
+        EntitySpec<?> spec = 
+            mgmt().getTypeRegistry().createSpecFromPlan(CampTypePlanTransformer.FORMAT, input, RegisteredTypeLoadingContexts.spec(Application.class), EntitySpec.class);
+        final Entity app = mgmt().getEntityManager().createEntity(spec);
+        getLogger().info("Test created app, and will now start " + app);
+        
+        // start the app (happens automatically if we use camp to instantiate, but not if we use crate spec approach)
+        app.invoke(Startable.START, startParameters).get();
+        return app;
     }
 
-    protected Entity createAndStartApplication(Reader input) throws Exception {
-        AssemblyTemplate at = platform.pdp().registerDeploymentPlan(input);
-        Assembly assembly;
-        try {
-            assembly = at.getInstantiator().newInstance().instantiate(at, platform);
-        } catch (Exception e) {
-            getLogger().warn("Unable to instantiate " + at + " (rethrowing): " + e);
-            throw e;
-        }
-        getLogger().info("Test - created " + assembly);
-        final Entity app = mgmt().getEntityManager().getEntity(assembly.getId());
-        getLogger().info("App - " + app);
-        
-        // wait for app to have started
-        Set<Task<?>> tasks = mgmt().getExecutionManager().getTasksWithAllTags(ImmutableList.of(
-                BrooklynTaskTags.EFFECTOR_TAG, 
-                BrooklynTaskTags.tagForContextEntity(app), 
-                BrooklynTaskTags.tagForEffectorCall(app, "start", ConfigBag.newInstance(ImmutableMap.of("locations", ImmutableMap.of())))));
-        Iterables.getOnlyElement(tasks).get();
-        
-        return app;
+    protected Entity createStartWaitAndLogApplication(String... input) throws Exception {
+        return createStartWaitAndLogApplication(joinLines(input));
+    }
+
+    protected Entity createStartWaitAndLogApplication(String input) throws Exception {
+        return createStartWaitAndLogApplication(new StringReader(input));
     }
 
     protected Entity createStartWaitAndLogApplication(Reader input) throws Exception {
@@ -164,7 +171,7 @@ public class AbstractYamlRebindTest extends RebindTestFixture<StartableApplicati
 
         getLogger().info("App started:");
         Entities.dumpInfo(app);
-        
+
         return app;
     }
 

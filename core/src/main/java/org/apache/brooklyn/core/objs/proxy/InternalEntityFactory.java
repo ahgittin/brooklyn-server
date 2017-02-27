@@ -49,7 +49,6 @@ import org.apache.brooklyn.core.entity.EntityInternal;
 import org.apache.brooklyn.core.mgmt.BrooklynTags;
 import org.apache.brooklyn.core.mgmt.BrooklynTaskTags;
 import org.apache.brooklyn.core.mgmt.internal.ManagementContextInternal;
-import org.apache.brooklyn.core.policy.AbstractPolicy;
 import org.apache.brooklyn.util.collections.MutableList;
 import org.apache.brooklyn.util.collections.MutableMap;
 import org.apache.brooklyn.util.collections.MutableSet;
@@ -58,6 +57,7 @@ import org.apache.brooklyn.util.core.task.Tasks;
 import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.javalang.AggregateClassLoader;
 import org.apache.brooklyn.util.javalang.Reflections;
+import org.apache.brooklyn.util.text.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -271,6 +271,11 @@ public class InternalEntityFactory extends InternalFactory {
     }
 
     private void addSpecParameters(EntitySpec<?> spec, EntityDynamicType edType) {
+        // if coming from a catalog item, the spec list of parameters is canonical, 
+        // ie it has just the right ones from the class, so clear the parameters on the type
+        if (Strings.isNonBlank(spec.getCatalogItemId())) {
+            edType.clearConfigKeys();
+        }
         for (SpecParameter<?> param : spec.getParameters()) {
             edType.addConfigKey(param.getConfigKey());
             if (param.getSensor()!=null) edType.addSensor(param.getSensor());
@@ -320,7 +325,6 @@ public class InternalEntityFactory extends InternalFactory {
          * TODO It would be nice if these schedule tasks were grouped in a bucket! 
          */
         ((EntityInternal)entity).getExecutionContext().submit(Tasks.builder().dynamic(false).displayName("Entity initialization")
-                .tag(BrooklynTaskTags.tagForContextEntity(entity))
                 .tag(BrooklynTaskTags.TRANSIENT_TASK_TAG)
                 .body(new Runnable() {
             @Override
@@ -352,7 +356,7 @@ public class InternalEntityFactory extends InternalFactory {
                 }
 
                 for (Policy policy : spec.getPolicies()) {
-                    entity.policies().add((AbstractPolicy)policy);
+                    entity.policies().add(policy);
                 }
 
                 for (PolicySpec<?> policySpec : spec.getPolicySpecs()) {

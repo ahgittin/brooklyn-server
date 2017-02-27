@@ -35,8 +35,6 @@ import org.apache.brooklyn.util.core.flags.TypeCoercions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Sets;
-
 public class BasicLocationRebindSupport extends AbstractBrooklynObjectRebindSupport<LocationMemento> {
 
     private static final Logger LOG = LoggerFactory.getLogger(BasicLocationRebindSupport.class);
@@ -70,37 +68,43 @@ public class BasicLocationRebindSupport extends AbstractBrooklynObjectRebindSupp
         // FIXME Treat config like we do for entities; this code will disappear when locations become entities.
         
         // Note that the flags have been set in the constructor
-        // FIXME Relies on location.config().getLocalBag() being mutable (to modify the location's own config)
+        // Sept 2016 - now ignores unused and config description
         
-        location.config().getLocalBag().putAll(memento.getLocationConfig()).markAll(
-                Sets.difference(memento.getLocationConfig().keySet(), memento.getLocationConfigUnused())).
-                setDescription(memento.getLocationConfigDescription());
-
         for (Map.Entry<String, Object> entry : memento.getLocationConfig().entrySet()) {
             String flagName = entry.getKey();
+            Object value = entry.getValue();
+            
+            Field field;
             try {
-                Field field = FlagUtils.findFieldForFlag(flagName, location);
-                Class<?> fieldType = field.getType();
-                Object value = entry.getValue();
-                
-                // Field is either of type ConfigKey, or it's a vanilla java field annotated with @SetFromFlag.
-                // If the former, need to look up the field value (i.e. the ConfigKey) to find out the type.
-                // If the latter, just want to look at the field itself to get the type.
-                // Then coerce the value we have to that type.
-                // And use magic of setFieldFromFlag's magic to either set config or field as appropriate.
-                if (ConfigKey.class.isAssignableFrom(fieldType)) {
-                    ConfigKey<?> configKey = (ConfigKey<?>) FlagUtils.getField(location, field);
-                    location.config().set((ConfigKey<Object>)configKey, entry.getValue());
-                } else {
-                    value = TypeCoercions.coerce(entry.getValue(), fieldType);
-                    if (value != null) {
-                        location.config().addToLocalBag(MutableMap.of(flagName, value));
-                        FlagUtils.setFieldFromFlag(location, flagName, value);
-                    }
-                }
-                
+                field = FlagUtils.findFieldForFlag(flagName, location);
             } catch (NoSuchElementException e) {
                 // FIXME How to do findFieldForFlag without throwing exception if it's not there?
+                field = null;
+            }
+            if (field == null) {
+                // This is anonymous config: just add it using the string key
+                location.config().putAll(MutableMap.of(flagName, value));
+                continue;
+            }
+            
+            Class<?> fieldType = field.getType();
+
+            // Field is either of type ConfigKey, or it's a vanilla java field annotated with @SetFromFlag.
+            // If the former, need to look up the field value (i.e. the ConfigKey) to find out the type.
+            // If the latter, just want to look at the field itself to get the type.
+            // Then coerce the value we have to that type.
+            // And use magic of setFieldFromFlag's magic to either set config or field as appropriate.
+            if (ConfigKey.class.isAssignableFrom(fieldType)) {
+                ConfigKey<?> configKey = (ConfigKey<?>) FlagUtils.getField(location, field);
+                location.config().set((ConfigKey<Object>)configKey, entry.getValue());
+            } else {
+                // Fields annotated with `@SetFromFlag` are very "special" - don't treat them 
+                // like normal config (because that's not how they are normally treated before
+                // rebind - see https://issues.apache.org/jira/browse/BROOKLYN-396
+                value = TypeCoercions.coerce(entry.getValue(), fieldType);
+                if (value != null) {
+                    FlagUtils.setFieldFromFlag(location, flagName, value);
+                }
             }
         }
     }

@@ -19,6 +19,7 @@
 package org.apache.brooklyn.api.catalog;
 
 import java.util.Collection;
+import java.util.Locale;
 
 import javax.annotation.Nullable;
 
@@ -62,10 +63,16 @@ public interface CatalogItem<T,SpecT> extends BrooklynObject, Rebindable {
             if (Entity.class.isAssignableFrom(type)) return ENTITY;
             return null;
         }
+
+        @Override
+        public String toString() {
+            return name().toLowerCase(Locale.ENGLISH);
+        }
     }
     
     public static interface CatalogBundle extends OsgiBundleWithUrl {
         /** @deprecated since 0.9.0, use {@link #isNameResolved()} */
+        @Deprecated
         public boolean isNamed();
     }
 

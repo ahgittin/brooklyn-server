@@ -33,7 +33,6 @@ import org.apache.brooklyn.core.policy.AbstractPolicy;
 import org.apache.brooklyn.core.sensor.DurationSinceSensor;
 import org.apache.brooklyn.core.sensor.Sensors;
 import org.apache.brooklyn.util.core.config.ConfigBag;
-import org.apache.brooklyn.util.core.flags.SetFromFlag;
 import org.apache.brooklyn.util.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +79,7 @@ public class StopAfterDurationPolicy extends AbstractPolicy {
 
     private final Object eventLock = new Object[0];
 
+    @Override
     public void setEntity(final EntityLocal entity) {
         super.setEntity(entity);
         entity.subscriptions().subscribe(entity, Attributes.SERVICE_STATE_ACTUAL, new LifecycleListener());

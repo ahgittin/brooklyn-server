@@ -20,23 +20,29 @@ package org.apache.brooklyn.core.entity;
 
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotEquals;
+import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
 import java.util.List;
+import java.util.Set;
 
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.location.LocationSpec;
+import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.core.location.SimulatedLocation;
 import org.apache.brooklyn.core.test.BrooklynAppUnitTestSupport;
 import org.apache.brooklyn.core.test.entity.TestApplication;
 import org.apache.brooklyn.core.test.entity.TestApplicationImpl;
 import org.apache.brooklyn.core.test.entity.TestEntity;
 import org.apache.brooklyn.core.test.entity.TestEntityImpl;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 
 /**
  * Tests the deprecated use of AbstractAppliation, where its constructor is called directly.
@@ -47,6 +53,7 @@ public class AbstractApplicationLegacyTest extends BrooklynAppUnitTestSupport {
 
     private SimulatedLocation loc;
     private List<SimulatedLocation> locs;
+    private Set<ManagementContext> extraMgmtContexts;
     
     @BeforeMethod(alwaysRun=true)
     @Override
@@ -54,9 +61,26 @@ public class AbstractApplicationLegacyTest extends BrooklynAppUnitTestSupport {
         super.setUp();
         loc = mgmt.getLocationManager().createLocation(LocationSpec.create(SimulatedLocation.class));
         locs = ImmutableList.of(loc);
+        extraMgmtContexts = Sets.newLinkedHashSet();
     }
     
-    // App and its children will be implicitly managed on first effector call on app
+    @AfterMethod(alwaysRun=true)
+    @Override
+    public void tearDown() throws Exception {
+        try {
+            super.tearDown();
+        } finally {
+            for (ManagementContext extraMgmt : extraMgmtContexts) {
+                if (extraMgmt != null) Entities.destroyAll(extraMgmt);
+            }
+            extraMgmtContexts = null;
+            locs = null;
+            loc = null;
+        }
+    }
+    
+    // App and its children will be implicitly managed on first effector call on app.
+    // Will cause the implicit creation of a new management context!
     @Test
     public void testStartAndStopUnmanagedAppAutomanagesTheAppAndChildren() throws Exception {
         // deliberately unmanaged
@@ -66,11 +90,15 @@ public class AbstractApplicationLegacyTest extends BrooklynAppUnitTestSupport {
         assertFalse(Entities.isManaged(child));
         
         app2.invoke(AbstractApplication.START, ImmutableMap.of("locations", locs)).get();
+        extraMgmtContexts.add(app2.getManagementContext());
         assertTrue(Entities.isManaged(app2));
         assertTrue(Entities.isManaged(child));
         assertEquals(child.getCallHistory(), ImmutableList.of("start"));
-        assertEquals(mgmt.getEntityManager().getEntity(app2.getId()), app2);
-        assertEquals(mgmt.getEntityManager().getEntity(child.getId()), child);
+        assertNull(mgmt.getEntityManager().getEntity(app2.getId()), "app2 shouldn't be managed by mgmt");
+        assertNull(mgmt.getEntityManager().getEntity(child.getId()), "child shouldn't be managed by mgmt");
+        assertNotEquals(mgmt, app2.getManagementContext(), "managing app2 creates a new management context");
+        assertEquals(app2.getManagementContext().getEntityManager().getEntity(app2.getId()), app2);
+        assertEquals(app2.getManagementContext().getEntityManager().getEntity(child.getId()), child);
         
         app2.stop();
         assertEquals(child.getCallHistory(), ImmutableList.of("start", "stop"));

@@ -42,7 +42,6 @@ import org.apache.brooklyn.location.jclouds.StubbedComputeServiceRegistry.NodeCr
 import org.apache.brooklyn.util.os.Os;
 import org.apache.brooklyn.util.text.Identifiers;
 import org.apache.brooklyn.util.time.Duration;
-import org.jclouds.compute.domain.ComputeMetadata;
 import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.compute.domain.NodeMetadata.Status;
 import org.jclouds.compute.domain.NodeMetadataBuilder;
@@ -55,12 +54,13 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import com.google.common.base.Predicate;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
-public class JcloudsByonLocationResolverStubbedRebindTest extends AbstractJcloudsStubbedLiveTest {
+public class JcloudsByonLocationResolverStubbedRebindTest extends AbstractJcloudsStubbedUnitTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(JcloudsByonLocationResolverStubbedRebindTest.class);
     
@@ -81,6 +81,7 @@ public class JcloudsByonLocationResolverStubbedRebindTest extends AbstractJcloud
     protected Application newApp;
     protected ManagementContext newManagementContext;
 
+    @Override
     @BeforeMethod(alwaysRun=true)
     public void setUp() throws Exception {
         mementoDir = Os.newTempDir(getClass());
@@ -92,8 +93,11 @@ public class JcloudsByonLocationResolverStubbedRebindTest extends AbstractJcloud
         LOG.info("Test "+getClass()+" persisting to "+mementoDir);
         
         super.setUp();
+        
+        initNodeCreatorAndJcloudsLocation(newNodeCreator(), ImmutableMap.of());
     }
 
+    @Override
     @AfterMethod(alwaysRun=true)
     public void tearDown() throws Exception {
         super.tearDown();
@@ -116,7 +120,7 @@ public class JcloudsByonLocationResolverStubbedRebindTest extends AbstractJcloud
     }
     public static class NodeCreatorForRebinding extends AbstractNodeCreator {
         @Override
-        public Set<? extends NodeMetadata> listNodesDetailsMatching(Predicate<ComputeMetadata> filter) {
+        public Set<? extends NodeMetadata> listNodesDetailsMatching(Predicate<? super NodeMetadata> filter) {
             NodeMetadata result = new NodeMetadataBuilder()
                     .id(nodeId)
                     .credentials(LoginCredentials.builder().identity("dummy").credential("dummy").build())
@@ -136,7 +140,12 @@ public class JcloudsByonLocationResolverStubbedRebindTest extends AbstractJcloud
     @Test
     public void testRebind() throws Exception {
         String spec = "jcloudsByon:(provider=\""+SOFTLAYER_PROVIDER+"\",region=\""+SOFTLAYER_AMS01_REGION_NAME+"\",user=\"myuser\",password=\"mypassword\",hosts=\""+nodeId+"\")";
-        Map<?,?> specFlags = ImmutableMap.of(JcloudsLocationConfig.COMPUTE_SERVICE_REGISTRY, computeServiceRegistry);
+        Map<?,?> specFlags = ImmutableMap.builder()
+                .put(JcloudsLocationConfig.COMPUTE_SERVICE_REGISTRY, computeServiceRegistry)
+                .put(JcloudsLocationConfig.WAIT_FOR_SSHABLE, Duration.ONE_SECOND.toString())
+                .put(JcloudsLocation.POLL_FOR_FIRST_REACHABLE_ADDRESS, Duration.ONE_SECOND.toString())
+                .put(JcloudsLocation.POLL_FOR_FIRST_REACHABLE_ADDRESS_PREDICATE, Predicates.alwaysTrue())
+                .build();
 
         FixedListMachineProvisioningLocation<MachineLocation> location = getLocationManaged(spec, specFlags);
         JcloudsSshMachineLocation machine = (JcloudsSshMachineLocation) Iterables.getOnlyElement(location.getAllMachines());
@@ -183,7 +192,7 @@ public class JcloudsByonLocationResolverStubbedRebindTest extends AbstractJcloud
         if (options.origManagementContext == null) options.origManagementContext(origManagementContext);
         if (options.newManagementContext == null) options.newManagementContext(createNewManagementContext(options.mementoDir));
         
-        RebindTestUtils.waitForPersisted(origApp);
+        RebindTestUtils.stopPersistence(origApp);
         
         newManagementContext = options.newManagementContext;
         newApp = RebindTestUtils.rebind(options);

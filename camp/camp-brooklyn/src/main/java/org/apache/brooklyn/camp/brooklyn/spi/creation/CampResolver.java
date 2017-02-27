@@ -25,7 +25,6 @@ import org.apache.brooklyn.api.entity.Entity;
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.internal.AbstractBrooklynObjectSpec;
 import org.apache.brooklyn.api.location.Location;
-import org.apache.brooklyn.api.location.LocationSpec;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.mgmt.classloading.BrooklynClassLoadingContext;
 import org.apache.brooklyn.api.policy.Policy;
@@ -117,6 +116,9 @@ class CampResolver {
         }
 
         spec.catalogItemIdIfNotNull(item.getId());
+        if (!spec.getFlags().containsKey("iconUrl") && item.getIconUrl()!=null) {
+            spec.configure("iconUrl", item.getIconUrl());
+        }
 
         if (spec instanceof EntitySpec) {
             String name = spec.getDisplayName();
@@ -139,7 +141,7 @@ class CampResolver {
     private static EntitySpec<?> createEntitySpecFromServicesBlock(String plan, BrooklynClassLoadingContext loader, Set<String> encounteredTypes, boolean isApplication) {
         CampPlatform camp = CampInternalUtils.getCampPlatform(loader.getManagementContext());
 
-        AssemblyTemplate at = CampInternalUtils.registerDeploymentPlan(plan, loader, camp);
+        AssemblyTemplate at = CampInternalUtils.resolveDeploymentPlan(plan, loader, camp);
         AssemblyTemplateInstantiator instantiator = CampInternalUtils.getInstantiator(at);
         if (instantiator instanceof AssemblyTemplateSpecInstantiator) {
             EntitySpec<? extends Application> appSpec = ((AssemblyTemplateSpecInstantiator)instantiator).createApplicationSpec(at, camp, loader, encounteredTypes);

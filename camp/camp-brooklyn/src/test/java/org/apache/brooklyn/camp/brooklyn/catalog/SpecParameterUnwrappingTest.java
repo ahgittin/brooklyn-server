@@ -18,9 +18,11 @@
  */
 package org.apache.brooklyn.camp.brooklyn.catalog;
 
+import static org.apache.brooklyn.core.objs.SpecParameterPredicates.labelEqualTo;
+import static org.apache.brooklyn.core.objs.SpecParameterPredicates.nameEqualTo;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
-import static org.testng.Assert.fail;
+import static org.testng.Assert.assertTrue;
 
 import java.util.Iterator;
 import java.util.List;
@@ -37,8 +39,10 @@ import org.apache.brooklyn.api.policy.Policy;
 import org.apache.brooklyn.camp.brooklyn.AbstractYamlTest;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
+import org.apache.brooklyn.core.config.ConfigPredicates;
 import org.apache.brooklyn.core.entity.AbstractApplication;
 import org.apache.brooklyn.core.entity.AbstractEntity;
+import org.apache.brooklyn.core.entity.EntityPredicates;
 import org.apache.brooklyn.core.location.AbstractLocation;
 import org.apache.brooklyn.core.mgmt.EntityManagementUtils;
 import org.apache.brooklyn.core.mgmt.internal.LocalManagementContext;
@@ -46,28 +50,44 @@ import org.apache.brooklyn.core.objs.BasicSpecParameter;
 import org.apache.brooklyn.core.policy.AbstractPolicy;
 import org.apache.brooklyn.core.test.entity.LocalManagementContextForTests;
 import org.apache.brooklyn.entity.stock.BasicApplication;
-import org.testng.SkipException;
+import org.apache.brooklyn.entity.stock.BasicStartable;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Optional;
+import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 public class SpecParameterUnwrappingTest extends AbstractYamlTest {
+    
+    // Expect app to have the following config keys already: 
+    // "application.stop.shouldDestroy", "defaultDisplayName", "quorum.running", "quorum.up", "start.latch"
+    public static final int NUM_APP_DEFAULT_CONFIG_KEYS = 5;
+    // "defaultDisplayName"
+    public static final int NUM_ENTITY_DEFAULT_CONFIG_KEYS = 1;
+    // none
+    public static final int NUM_POLICY_DEFAULT_CONFIG_KEYS = 0;
+    // various ssh things...
+    public static final int NUM_LOCATION_DEFAULT_CONFIG_KEYS = 5;
+    
     private static final String SYMBOLIC_NAME = "my.catalog.app.id.load";
 
     private static final ConfigKey<String> SHARED_CONFIG = ConfigKeys.newStringConfigKey("sample.config");
     public static class ConfigAppForTest extends AbstractApplication {
+        public static final int NUM_CONFIG_KEYS_DEFINED_HERE = 1;
         public static final ConfigKey<String> SAMPLE_CONFIG = SHARED_CONFIG;
     }
     public static class ConfigEntityForTest extends AbstractEntity {
+        public static final int NUM_CONFIG_KEYS_DEFINED_HERE = 1;
         public static final ConfigKey<String> SAMPLE_CONFIG = SHARED_CONFIG;
     }
     public static class ConfigPolicyForTest extends AbstractPolicy {
+        public static final int NUM_CONFIG_KEYS_DEFINED_HERE = 1;
         public static final ConfigKey<String> SAMPLE_CONFIG = SHARED_CONFIG;
     }
     public static class ConfigLocationForTest extends AbstractLocation {
+        public static final int NUM_CONFIG_KEYS_DEFINED_HERE = 1;
         public static final ConfigKey<String> SAMPLE_CONFIG = SHARED_CONFIG;
     }
 
@@ -100,8 +120,8 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
         ConfigKey<String> SIMPLE_CONFIG = ConfigKeys.newStringConfigKey("simple");
         SpecParameter<String> SIMPLE_PARAM = new BasicSpecParameter<>("simple", true, SIMPLE_CONFIG);
         CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
-        AbstractBrooklynObjectSpec<?,?> spec = createSpec(item);
-        assertEquals(ImmutableSet.copyOf(spec.getParameters()), ImmutableList.of(SIMPLE_PARAM));
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        assertTrue(Iterables.tryFind(spec.getParameters(), Predicates.<SpecParameter<?>>equalTo(SIMPLE_PARAM)).isPresent());
     }
 
     @Test(dataProvider = "brooklynTypes")
@@ -115,7 +135,7 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
             "    type: "+ testClass.getName());
 
         CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
-        AbstractBrooklynObjectSpec<?, ?> spec = createSpec(item);
+        AbstractBrooklynObjectSpec<?, ?> spec = catalog.peekSpec(item);
         assertEquals(ImmutableSet.copyOf(spec.getParameters()), ImmutableSet.copyOf(BasicSpecParameter.fromClass(mgmt(),testClass)));
     }
 
@@ -131,45 +151,61 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "    - type: " + ConfigEntityForTest.class.getName(),
                 "    brooklyn.parameters:",
                 "    - simple");
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
 
         CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
-        AbstractBrooklynObjectSpec<?,?> spec = createSpec(item);
-        List<SpecParameter<?>> inputs = spec.getParameters();
-        assertEquals(inputs.size(), 1);
-        SpecParameter<?> firstInput = inputs.get(0);
-        assertEquals(firstInput.getLabel(), "simple");
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        List<SpecParameter<?>> params = spec.getParameters();
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, nameEqualTo(SHARED_CONFIG.getName())).isPresent());
+        // it is surprising to have all the application config keys when the app was only ever for wrapper purposes;
+        // perhaps those will be removed in time (but they aren't causing much harm)
+        assertEquals(params.size(), NUM_APP_DEFAULT_CONFIG_KEYS + ConfigEntityForTest.NUM_CONFIG_KEYS_DEFINED_HERE + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT, 
+            "params="+params);
     }
 
     @Test(dataProvider="brooklynTypes")
-    public void testDepentantCatalogsInheritParameters(Class<? extends BrooklynObject> type) {
-        if (type == ConfigLocationForTest.class) {
-            //TODO
-            throw new SkipException("Locations don't inherit parameters, should migrate to the type registry first");
+    public void testDependantCatalogsInheritParameters(Class<? extends BrooklynObject> type) {
+        addCatalogItems(
+                "brooklyn.catalog:",
+                "  version: " + TEST_VERSION,
+                "  itemType: " + inferItemType(type),
+                "  items:",
+                "  - id: paramItem",
+                "    item:",
+                "      type: " + type.getName(),
+                "      brooklyn.parameters:",
+                "      - simple",
+                "  - id: " + SYMBOLIC_NAME,
+                "    item:",
+                "      type: paramItem");
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
+
+        CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        List<SpecParameter<?>> params = spec.getParameters();
+        // should have simple in parent yaml type and sample from parent java type
+        assertEquals(params.size(), getNumDefaultConfigKeysFor(type.getSimpleName()) + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT,
+            "params="+params);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, labelEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, nameEqualTo(SHARED_CONFIG.getName())).isPresent());
+    }
+
+    private int getNumDefaultConfigKeysFor(String simpleName) {
+        switch (simpleName) {
+        case "ConfigEntityForTest":
+            return NUM_ENTITY_DEFAULT_CONFIG_KEYS + ConfigEntityForTest.NUM_CONFIG_KEYS_DEFINED_HERE;
+        case "ConfigPolicyForTest":
+            return NUM_POLICY_DEFAULT_CONFIG_KEYS + ConfigPolicyForTest.NUM_CONFIG_KEYS_DEFINED_HERE;
+        case "ConfigLocationForTest":
+            return NUM_LOCATION_DEFAULT_CONFIG_KEYS + ConfigLocationForTest.NUM_CONFIG_KEYS_DEFINED_HERE;
         }
-        addCatalogItems(
-                "brooklyn.catalog:",
-                "  version: " + TEST_VERSION,
-                "  itemType: " + inferItemType(type),
-                "  items:",
-                "  - id: paramItem",
-                "    item:",
-                "      type: " + type.getName(),
-                "      brooklyn.parameters:",
-                "      - simple",
-                "  - id: " + SYMBOLIC_NAME,
-                "    item:",
-                "      type: paramItem:" + TEST_VERSION);
-
-        CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
-        AbstractBrooklynObjectSpec<?,?> spec = createSpec(item);
-        List<SpecParameter<?>> inputs = spec.getParameters();
-        assertEquals(inputs.size(), 1);
-        SpecParameter<?> firstInput = inputs.get(0);
-        assertEquals(firstInput.getLabel(), "simple");
+        throw new IllegalArgumentException("Unexpected name: "+simpleName);
     }
 
     @Test(dataProvider="brooklynTypes")
-    public void testDepentantCatalogsOverrideParameters(Class<? extends BrooklynObject> type) {
+    public void testDependantCatalogsExtendsParameters(Class<? extends BrooklynObject> type) {
         addCatalogItems(
                 "brooklyn.catalog:",
                 "  version: " + TEST_VERSION,
@@ -182,17 +218,137 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "      - simple",
                 "  - id: " + SYMBOLIC_NAME,
                 "    item:",
-                // Don't set explicit version, not supported by locations
                 "      type: paramItem",
                 "      brooklyn.parameters:",
-                "      - override");
+                "      - another");
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 2;
 
         CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
-        AbstractBrooklynObjectSpec<?,?> spec = createSpec(item);
-        List<SpecParameter<?>> inputs = spec.getParameters();
-        assertEquals(inputs.size(), 1);
-        SpecParameter<?> firstInput = inputs.get(0);
-        assertEquals(firstInput.getLabel(), "override");
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        List<SpecParameter<?>> params = spec.getParameters();
+        // should have another locally, simple in parent yaml type, and sample from parent java type
+        assertEquals(params.size(), getNumDefaultConfigKeysFor(type.getSimpleName()) + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT,
+            // XXX 3
+            "params="+params);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, nameEqualTo("another")).isPresent());
+    }
+
+    @Test(dataProvider="brooklynTypes")
+    public void testDependantCatalogMergesParameters(Class<? extends BrooklynObject> type) {
+        addCatalogItems(
+                "brooklyn.catalog:",
+                "  version: " + TEST_VERSION,
+                "  items:",
+                "  - id: paramItem",
+                "    item:",
+                "      type: " + type.getName(),
+                "      brooklyn.parameters:",
+                "      - name: simple",
+                "        label: simple",
+                "  - id: " + SYMBOLIC_NAME,
+                "    item:",
+                "      type: paramItem",
+                "      brooklyn.parameters:",
+                "      - name: simple",
+                "        label: override");
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
+
+        CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        List<SpecParameter<?>> params = spec.getParameters();
+        // should have simple locally (and in parent yaml type) and sample from parent java type
+        assertEquals(params.size(), getNumDefaultConfigKeysFor(type.getSimpleName()) + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT,
+            // XXX 2
+            "params="+params);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, labelEqualTo("override")).isPresent());
+    }
+
+    @Test
+    public void testDependantCatalogConfigOverridesParameters() {
+        addCatalogItems(
+                "brooklyn.catalog:",
+                "  version: " + TEST_VERSION,
+                "  items:",
+                "  - id: paramItem",
+                "    item:",
+                "      type: " + ConfigEntityForTest.class.getName(),
+                "      brooklyn.parameters:",
+                "      - name: simple",
+                "        default: biscuits",
+                "      brooklyn.config:",
+                "        simple: value",
+                "  - id: " + SYMBOLIC_NAME,
+                "    item:",
+                "      type: paramItem",
+                "      brooklyn.parameters:",
+                "      - name: simple",
+                "        default: rabbits");
+
+        CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        List<SpecParameter<?>> params = spec.getParameters();
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        Optional<ConfigKey<?>> config = Iterables.tryFind(spec.getConfig().keySet(), ConfigPredicates.nameEqualTo("simple"));
+        assertTrue(config.isPresent());
+        Object value = spec.getConfig().get(config.get());
+        assertEquals(value, "value");
+    }
+
+    @Test
+    public void testCatalogConfigOverridesParameters() {
+        addCatalogItems(
+                "brooklyn.catalog:",
+                "  version: " + TEST_VERSION,
+                "  items:",
+                "  - id: " + SYMBOLIC_NAME,
+                "    item:",
+                "      type: " + ConfigEntityForTest.class.getName(),
+                "      brooklyn.parameters:",
+                "      - name: simple",
+                "        default: biscuits",
+                "      brooklyn.config:",
+                "        simple: value");
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
+
+        CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        List<SpecParameter<?>> params = spec.getParameters();
+        assertEquals(params.size(), NUM_ENTITY_DEFAULT_CONFIG_KEYS + ConfigEntityForTest.NUM_CONFIG_KEYS_DEFINED_HERE + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        Optional<ConfigKey<?>> config = Iterables.tryFind(spec.getConfig().keySet(), ConfigPredicates.nameEqualTo("simple"));
+        assertTrue(config.isPresent());
+        Object value = spec.getConfig().get(config.get());
+        assertEquals(value, "value");
+    }
+
+    @Test
+    public void testDependantCatalogConfigReplacesParameters() {
+        addCatalogItems(
+                "brooklyn.catalog:",
+                "  version: " + TEST_VERSION,
+                "  items:",
+                "  - id: paramItem",
+                "    item:",
+                "      type: " + ConfigEntityForTest.class.getName(),
+                "      brooklyn.config:",
+                "        simple: value",
+                "  - id: " + SYMBOLIC_NAME,
+                "    item:",
+                "      type: paramItem",
+                "      brooklyn.parameters:",
+                "      - name: simple",
+                "        default: rabbits");
+
+        CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        List<SpecParameter<?>> params = spec.getParameters();
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        Optional<ConfigKey<?>> config = Iterables.tryFind(spec.getConfig().keySet(), ConfigPredicates.nameEqualTo("simple"));
+        assertTrue(config.isPresent());
+        Object value = spec.getConfig().get(config.get());
+        assertEquals(value, "value");
     }
 
     @Test
@@ -210,11 +366,12 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "      - simple");
 
         CatalogItem<?, ?> item = catalog.getCatalogItem(SYMBOLIC_NAME, TEST_VERSION);
-        @SuppressWarnings({ "rawtypes", "unchecked"})
-        EntitySpec<?> parentSpec = (EntitySpec<?>) catalog.createSpec((CatalogItem)item);
+        EntitySpec<?> parentSpec = (EntitySpec<?>) catalog.peekSpec(item);
         EntitySpec<?> spec = parentSpec.getChildren().get(0);
-        SpecParameter<?> firstInput = spec.getParameters().get(0);
-        assertEquals(firstInput.getLabel(), "simple");
+        List<SpecParameter<?>> params = spec.getParameters();
+        assertEquals(params.size(), NUM_ENTITY_DEFAULT_CONFIG_KEYS + 2, "params="+params);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, labelEqualTo("simple")).isPresent());
     }
 
     @Test
@@ -228,14 +385,15 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "    type: " + BasicApplication.class.getName(),
                 "    brooklyn.parameters:",
                 "    - simple");
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
 
         EntitySpec<? extends Application> spec = createAppSpec(
                 "services:",
                 "- type: " + ver(SYMBOLIC_NAME));
         List<SpecParameter<?>> params = spec.getParameters();
-        assertEquals(params.size(), 1);
-        SpecParameter<?> firstInput = params.get(0);
-        assertEquals(firstInput.getLabel(), "simple");
+        assertEquals(params.size(), NUM_APP_DEFAULT_CONFIG_KEYS + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT, "params="+params);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, labelEqualTo("simple")).isPresent());
     }
 
 
@@ -250,14 +408,15 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "    type: " + BasicApplication.class.getName(),
                 "    brooklyn.parameters:",
                 "    - simple");
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
 
         EntitySpec<? extends Application> spec = createAppSpec(
                 "services:",
                 "- type: " + ver(SYMBOLIC_NAME));
         List<SpecParameter<?>> params = spec.getParameters();
-        assertEquals(params.size(), 1);
-        SpecParameter<?> firstInput = params.get(0);
-        assertEquals(firstInput.getLabel(), "simple");
+        assertEquals(params.size(), NUM_APP_DEFAULT_CONFIG_KEYS + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT, "params="+params);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, labelEqualTo("simple")).isPresent());
     }
 
     @Test
@@ -272,14 +431,15 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "    - simple",
                 "    services:",
                 "    - type: " + BasicApplication.class.getName());
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
 
         EntitySpec<? extends Application> spec = createAppSpec(
                 "services:",
                 "- type: " + ver(SYMBOLIC_NAME));
         List<SpecParameter<?>> params = spec.getParameters();
-        assertEquals(params.size(), 1);
-        SpecParameter<?> firstInput = params.get(0);
-        assertEquals(firstInput.getLabel(), "simple");
+        assertEquals(params.size(), NUM_APP_DEFAULT_CONFIG_KEYS + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT, "params="+params);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("simple")).isPresent());
+        assertTrue(Iterables.tryFind(params, labelEqualTo("simple")).isPresent());
     }
 
     @Test
@@ -304,7 +464,7 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "services:",
                 "- type: " + ver(SYMBOLIC_NAME));
         List<SpecParameter<?>> params = spec.getParameters();
-        assertEquals(params.size(), 4, "Wrong number of params: "+params); // sample + defaultDisplayName + destroy_on_stop + start.latch
+        assertEquals(params.size(), NUM_APP_DEFAULT_CONFIG_KEYS + ConfigAppForTest.NUM_CONFIG_KEYS_DEFINED_HERE, "params="+params);
         assertEquals(ImmutableSet.copyOf(params), ImmutableSet.copyOf(BasicSpecParameter.fromClass(mgmt(), ConfigAppForTest.class)));
     }
 
@@ -352,6 +512,76 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
         assertFalse(childIter.hasNext());
     }
 
+    private static final ConfigKey<Integer> NUM = ConfigKeys.newIntegerConfigKey("num");
+
+    @Test
+    public void testParameterDefaultsUsedInConfig() throws Exception {
+        addCatalogItems(
+                "brooklyn.catalog:",
+                "  version: " + TEST_VERSION,
+                "  items:",
+                "    - id: " + ConfigEntityForTest.class.getSimpleName() + "WithParams",
+                "      itemType: entity",
+                "      item:",
+                "        type: " + ConfigEntityForTest.class.getName(),
+                "        brooklyn.parameters:",
+                "          - name: num",
+                "            type: integer",
+                "            default: 1234",
+                "        brooklyn.children:",
+                "          - type: " + BasicStartable.class.getName(),
+                "            name: s",
+                "            brooklyn.config:",
+                "              test: $brooklyn:parent().config(\"num\")",
+                "    - id: " + SYMBOLIC_NAME,
+                "      itemType: entity",
+                "      item:",
+                "        type: " + BasicApplication.class.getName(),
+                "        brooklyn.children:",
+                "          - type: " + ConfigEntityForTest.class.getSimpleName() + "WithParams",
+                "            name: a",
+                "          - type: " + ConfigEntityForTest.class.getSimpleName() + "WithParams",
+                "            name: b",
+                "            brooklyn.config:",
+                "              num: 5678",
+                "          - type: " + ConfigEntityForTest.class.getSimpleName() + "WithParams",
+                "            name: c",
+                "            brooklyn.config:",
+                "              test: $brooklyn:config(\"num\")");
+        final int NUM_CONFIG_KEYS_FROM_WITH_PARAMS_TEST_BLUEPRINT = 1;
+
+        CatalogItem<?, ?> item = catalog.getCatalogItem(ConfigEntityForTest.class.getSimpleName() + "WithParams", TEST_VERSION);
+        AbstractBrooklynObjectSpec<?,?> spec = catalog.peekSpec(item);
+        List<SpecParameter<?>> params = spec.getParameters();
+        assertEquals(params.size(), NUM_ENTITY_DEFAULT_CONFIG_KEYS + ConfigEntityForTest.NUM_CONFIG_KEYS_DEFINED_HERE + NUM_CONFIG_KEYS_FROM_WITH_PARAMS_TEST_BLUEPRINT,
+            "params="+params);
+        assertTrue(Iterables.tryFind(params, nameEqualTo("num")).isPresent());
+        
+        Application app = (Application) createAndStartApplication(
+                "services:",
+                "  - type: " + ver(SYMBOLIC_NAME));
+
+        Iterable<Entity> children = app.getChildren();
+        Optional<Entity> a = Iterables.tryFind(children, EntityPredicates.displayNameEqualTo("a"));
+        assertTrue(a.isPresent());
+        assertEquals(a.get().config().get(NUM).intValue(), 1234);
+        Optional<Entity> as = Iterables.tryFind(a.get().getChildren(), EntityPredicates.displayNameEqualTo("s"));
+        assertTrue(as.isPresent());
+        assertEquals(as.get().config().get(ConfigKeys.newIntegerConfigKey("test")).intValue(), 1234);
+        Optional<Entity> b = Iterables.tryFind(children, EntityPredicates.displayNameEqualTo("b"));
+        assertTrue(b.isPresent());
+        assertEquals(b.get().config().get(NUM).intValue(), 5678);
+        Optional<Entity> bs = Iterables.tryFind(b.get().getChildren(), EntityPredicates.displayNameEqualTo("s"));
+        assertTrue(bs.isPresent());
+        assertEquals(bs.get().config().get(ConfigKeys.newIntegerConfigKey("test")).intValue(), 5678);
+        Optional<Entity> c = Iterables.tryFind(children, EntityPredicates.displayNameEqualTo("c"));
+        assertTrue(c.isPresent());
+        assertEquals(c.get().config().get(ConfigKeys.newIntegerConfigKey("test")).intValue(), 1234);
+        Optional<Entity> cs = Iterables.tryFind(c.get().getChildren(), EntityPredicates.displayNameEqualTo("s"));
+        assertTrue(cs.isPresent());
+        assertEquals(cs.get().config().get(ConfigKeys.newIntegerConfigKey("test")).intValue(), 1234);
+    }
+
     @Test
     public void testAppRootParameters() throws Exception {
         EntitySpec<? extends Application> spec = createAppSpec(
@@ -359,9 +589,11 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "- simple",
                 "services:",
                 "- type: " + BasicApplication.class.getName());
-        List<SpecParameter<?>> inputs = spec.getParameters();
-        assertEquals(inputs.size(), 1);
-        SpecParameter<?> firstInput = inputs.get(0);
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
+        List<SpecParameter<?>> params = spec.getParameters();
+        assertEquals(params.size(), NUM_APP_DEFAULT_CONFIG_KEYS + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT, "params="+params);
+
+        SpecParameter<?> firstInput = params.get(0);
         assertEquals(firstInput.getLabel(), "simple");
     }
 
@@ -372,15 +604,11 @@ public class SpecParameterUnwrappingTest extends AbstractYamlTest {
                 "- type: " + BasicApplication.class.getName(),
                 "  brooklyn.parameters:",
                 "  - simple");
-        List<SpecParameter<?>> inputs = spec.getParameters();
-        assertEquals(inputs.size(), 1);
-        SpecParameter<?> firstInput = inputs.get(0);
+        final int NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT = 1;
+        List<SpecParameter<?>> params = spec.getParameters();
+        assertEquals(params.size(), NUM_APP_DEFAULT_CONFIG_KEYS + NUM_CONFIG_KEYS_FROM_TEST_BLUEPRINT, "params="+params);
+        SpecParameter<?> firstInput = params.get(0);
         assertEquals(firstInput.getLabel(), "simple");
-    }
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private AbstractBrooklynObjectSpec<?, ?> createSpec(CatalogItem<?, ?> item) {
-        return (AbstractBrooklynObjectSpec<?,?>) catalog.createSpec((CatalogItem)item);
     }
 
     private EntitySpec<? extends Application> createAppSpec(String... lines) {

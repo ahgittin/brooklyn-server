@@ -24,6 +24,7 @@ import java.util.Set;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.BasicConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
+import org.apache.brooklyn.core.config.MapConfigKey;
 import org.apache.brooklyn.util.os.Os;
 
 import com.google.common.base.CaseFormat;
@@ -35,7 +36,9 @@ public class LocationConfigKeys {
     public static final ConfigKey<String> DISPLAY_NAME = ConfigKeys.newStringConfigKey("displayName");
     public static final ConfigKey<Boolean> ENABLED = ConfigKeys.newBooleanConfigKey("enabled", "Whether the location is enabled for listing and use "
         + "(only supported for selected locations)", true);
-    
+
+    public static final MapConfigKey<String> EXTENSIONS = new MapConfigKey<String>(String.class, "extensions", "Location extensions");
+
     public static final ConfigKey<String> ACCESS_IDENTITY = ConfigKeys.newStringConfigKey("identity"); 
     public static final ConfigKey<String> ACCESS_CREDENTIAL = ConfigKeys.newStringConfigKey("credential"); 
 
@@ -46,6 +49,8 @@ public class LocationConfigKeys {
     public static final ConfigKey<String> CLOUD_ENDPOINT = ConfigKeys.newStringConfigKey("endpoint");
     public static final ConfigKey<String> CLOUD_REGION_ID = ConfigKeys.newStringConfigKey("region");
     public static final ConfigKey<String> CLOUD_AVAILABILITY_ZONE_ID = ConfigKeys.newStringConfigKey("availabilityZone");
+
+    public static final ConfigKey<String> OAUTH_ENDPOINT = ConfigKeys.newStringConfigKey("oauth.endpoint");
 
     @SuppressWarnings("serial")
     public static final ConfigKey<Set<String>> ISO_3166 = ConfigKeys.newConfigKey(new TypeToken<Set<String>>() {}, "iso3166", "ISO-3166 or ISO-3166-2 location codes"); 

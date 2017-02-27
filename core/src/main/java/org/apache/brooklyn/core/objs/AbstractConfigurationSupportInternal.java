@@ -19,6 +19,8 @@
 
 package org.apache.brooklyn.core.objs;
 
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -27,12 +29,17 @@ import javax.annotation.Nullable;
 
 import org.apache.brooklyn.api.mgmt.ExecutionContext;
 import org.apache.brooklyn.api.mgmt.Task;
+import org.apache.brooklyn.api.objs.BrooklynObject;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.config.ConfigKey.HasConfigKey;
+import org.apache.brooklyn.config.ConfigMap.ConfigMapWithInheritance;
 import org.apache.brooklyn.core.config.MapConfigKey;
 import org.apache.brooklyn.core.config.StructuredConfigKey;
 import org.apache.brooklyn.core.config.SubElementConfigKey;
+import org.apache.brooklyn.core.config.internal.AbstractConfigMapImpl;
 import org.apache.brooklyn.core.mgmt.BrooklynTaskTags;
+import org.apache.brooklyn.util.collections.MutableMap;
+import org.apache.brooklyn.util.core.config.ConfigBag;
 import org.apache.brooklyn.util.core.flags.TypeCoercions;
 import org.apache.brooklyn.util.core.task.Tasks;
 import org.apache.brooklyn.util.core.task.ValueResolver;
@@ -41,6 +48,8 @@ import org.apache.brooklyn.util.exceptions.RuntimeInterruptedException;
 import org.apache.brooklyn.util.guava.Maybe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Predicate;
 
 public abstract class AbstractConfigurationSupportInternal implements BrooklynObjectInternal.ConfigurationSupportInternal {
 
@@ -85,8 +94,9 @@ public abstract class AbstractConfigurationSupportInternal implements BrooklynOb
         // blocked. Really we'd need to dig into the implementation of get(key), so that the 
         // underlying work can be configured with a timeout, for when it finally calls 
         // ValueResolver.
-        
+
         Callable<T> job = new Callable<T>() {
+            @Override
             public T call() {
                 try {
                     return get(key);
@@ -95,14 +105,14 @@ public abstract class AbstractConfigurationSupportInternal implements BrooklynOb
                 }
             }
         };
-        
+
         Task<T> t = getContext().submit(Tasks.<T>builder().body(job)
                 .displayName("Resolving dependent value")
                 .description("Resolving "+key.getName())
                 .tag(BrooklynTaskTags.TRANSIENT_TASK_TAG)
                 .build());
         try {
-            T result = t.get(ValueResolver.PRETTY_QUICK_WAIT);
+            T result = t.get(ValueResolver.NON_BLOCKING_WAIT);
             return Maybe.of(result);
         } catch (TimeoutException e) {
             t.cancel(true);
@@ -114,7 +124,7 @@ public abstract class AbstractConfigurationSupportInternal implements BrooklynOb
             throw Exceptions.propagate(e);
         }
     }
-    
+
     /**
      * For resolving a "simple" config key - i.e. where there's not custom logic inside a 
      * {@link StructuredConfigKey} such as a {@link MapConfigKey}. For those, we'd need to do the
@@ -122,6 +132,9 @@ public abstract class AbstractConfigurationSupportInternal implements BrooklynOb
      * See {@link #getNonBlockingResolvingStructuredKey(ConfigKey)}.
      */
     protected <T> Maybe<T> getNonBlockingResolvingSimple(ConfigKey<T> key) {
+        // TODO See AbstractConfigMapImpl.getConfigImpl, for how it looks up the "container" of the
+        // key, so that it gets the right context entity etc.
+
         // getRaw returns Maybe(val) if the key was explicitly set (where val can be null)
         // or Absent if the config key was unset.
         Object unresolved = getRaw(key).or(key.getDefaultValue());
@@ -130,15 +143,16 @@ public abstract class AbstractConfigurationSupportInternal implements BrooklynOb
         Object resolved = Tasks.resolving(unresolved)
                 .as(Object.class)
                 .defaultValue(marker)
-                .timeout(ValueResolver.REAL_REAL_QUICK_WAIT)
+                .immediately(true)
+                .deep(true)
                 .context(getContext())
                 .swallowExceptions()
                 .get();
         return (resolved != marker)
-               ? TypeCoercions.tryCoerce(resolved, key.getTypeToken())
-               : Maybe.<T>absent();
+                ? TypeCoercions.tryCoerce(resolved, key.getTypeToken())
+                        : Maybe.<T>absent();
     }
-    
+
     @Override
     public <T> T set(HasConfigKey<T> key, Task<T> val) {
         return set(key.getConfigKey(), val);
@@ -147,6 +161,109 @@ public abstract class AbstractConfigurationSupportInternal implements BrooklynOb
     @Override
     public <T> T set(HasConfigKey<T> key, T val) {
         return set(key.getConfigKey(), val);
+    }
+
+    protected abstract AbstractConfigMapImpl<? extends BrooklynObject> getConfigsInternal();
+    protected abstract <T> void assertValid(ConfigKey<T> key, T val);
+    protected abstract BrooklynObject getContainer();
+    protected abstract <T> void onConfigChanging(ConfigKey<T> key, Object val);
+    protected abstract <T> void onConfigChanged(ConfigKey<T> key, Object val);
+
+    @Override
+    public <T> T get(ConfigKey<T> key) {
+        return getConfigsInternal().getConfig(key);
+    }
+
+    @SuppressWarnings("unchecked")
+    protected <T> T setConfigInternal(ConfigKey<T> key, Object val) {
+        onConfigChanging(key, val);
+        T result = (T) getConfigsInternal().setConfig(key, val);
+        onConfigChanged(key, val);
+        return result;
+    }
+
+    @Override
+    public <T> T set(ConfigKey<T> key, T val) {
+        assertValid(key, val);
+        return setConfigInternal(key, val);
+    }
+
+    @Override
+    public <T> T set(ConfigKey<T> key, Task<T> val) {
+        return setConfigInternal(key, val);
+    }
+
+    @Override
+    public ConfigBag getLocalBag() {
+        return ConfigBag.newInstance(getConfigsInternal().getAllConfigLocalRaw());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public Maybe<Object> getRaw(ConfigKey<?> key) {
+        return (Maybe<Object>) getConfigsInternal().getConfigInheritedRaw(key).getWithoutError().asMaybe();
+    }
+
+    @Override
+    public Maybe<Object> getLocalRaw(ConfigKey<?> key) {
+        return getConfigsInternal().getConfigLocalRaw(key);
+    }
+
+    @Override
+    public void putAll(Map<?, ?> vals) {
+        getConfigsInternal().putAll(vals);
+    }
+
+    @Override @Deprecated
+    public void set(Map<?, ?> vals) {
+        putAll(vals);
+    }
+
+    @Override
+    public void removeKey(String key) {
+        getConfigsInternal().removeKey(key);
+    }
+
+    @Override
+    public void removeKey(ConfigKey<?> key) {
+        getConfigsInternal().removeKey(key);
+    }
+
+    @Override
+    public void removeAllLocalConfig() {
+        getConfigsInternal().setLocalConfig(MutableMap.<ConfigKey<?>,Object>of());
+    }
+
+    @Override @Deprecated
+    public Set<ConfigKey<?>> findKeys(Predicate<? super ConfigKey<?>> filter) {
+        return getConfigsInternal().findKeys(filter);
+    }
+
+    @Override
+    public Set<ConfigKey<?>> findKeysDeclared(Predicate<? super ConfigKey<?>> filter) {
+        return getConfigsInternal().findKeysDeclared(filter);
+    }
+
+    @Override
+    public Set<ConfigKey<?>> findKeysPresent(Predicate<? super ConfigKey<?>> filter) {
+        return getConfigsInternal().findKeysPresent(filter);
+    }
+
+    @Override
+    public ConfigMapWithInheritance<? extends BrooklynObject> getInternalConfigMap() {
+        return getConfigsInternal();
+    }
+
+    @Override
+    public Map<ConfigKey<?>,Object> getAllLocalRaw() {
+        return getConfigsInternal().getAllConfigLocalRaw();
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    // see super; we aspire to depreate this due to poor treatment of inheritance
+    public ConfigBag getBag() {
+        return getConfigsInternal().getAllConfigBag();
     }
 
     /**

@@ -123,6 +123,12 @@ public class TaskBuilder<T> {
         return this;
     }
     
+    /** adds a tag to the given task */
+    public TaskBuilder<T> tagIfNotNull(Object tag) {
+        if (tag != null) tags.add(tag);
+        return this;
+    }
+    
     /** adds a flag to the given task */
     public TaskBuilder<T> flag(String flag, Object value) {
         flags.put(flag, value);
@@ -178,6 +184,7 @@ public class TaskBuilder<T> {
     /** returns a a factory based on this builder */
     public TaskFactory<Task<T>> buildFactory() {
         return new TaskFactory<Task<T>>() {
+            @Override
             public Task<T> newTask() {
                 return build();
             }

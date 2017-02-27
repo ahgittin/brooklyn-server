@@ -126,13 +126,13 @@ public class ExternalConfigBrooklynPropertiesTest extends AbstractYamlTest {
         String val1 = props.getConfig(ConfigKeys.newStringConfigKey(property));
         assertEquals(val1, expectedVal);
         
-        DeferredSupplier<?> val2 = (DeferredSupplier<?>) props.getRawConfig(ConfigKeys.newStringConfigKey(property));
+        DeferredSupplier<?> val2 = (DeferredSupplier<?>) props.getConfigRaw(ConfigKeys.newStringConfigKey(property)).get();
         assertEquals(Tasks.resolveValue(val2, String.class, exec), expectedVal);
         
-        DeferredSupplier<?> val3 = (DeferredSupplier<?>) props.getConfigRaw(ConfigKeys.newStringConfigKey(property), false).get();
+        DeferredSupplier<?> val3 = (DeferredSupplier<?>) props.getConfigLocalRaw(ConfigKeys.newStringConfigKey(property)).get();
         assertEquals(Tasks.resolveValue(val3, String.class, exec), expectedVal);
 
-        DeferredSupplier<?> val4 = (DeferredSupplier<?>) props.getAllConfig().get(ConfigKeys.newStringConfigKey(property));
+        DeferredSupplier<?> val4 = (DeferredSupplier<?>) props.getAllConfigLocalRaw().get(ConfigKeys.newStringConfigKey(property));
         assertEquals(Tasks.resolveValue(val4, String.class, exec), expectedVal);
         
         String val5 = props.getFirst(property);

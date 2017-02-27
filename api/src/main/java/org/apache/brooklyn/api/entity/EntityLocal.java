@@ -46,6 +46,7 @@ import com.google.common.base.Function;
  * 
  * @deprecated since 0.9.0; use {@link Entity} or {@link org.apache.brooklyn.core.entity.EntityInternal}
  */
+@Deprecated
 public interface EntityLocal extends Entity {
     
     // FIXME Rename to something other than EntityLocal.
@@ -54,6 +55,7 @@ public interface EntityLocal extends Entity {
     /**
      * @deprecated since 0.7.0; use {@link #config()}, such as {@code entity.config().set(key, val)}
      */
+    @Override
     @Deprecated
     <T> T setConfig(ConfigKey<T> key, T val);
     
@@ -78,28 +80,21 @@ public interface EntityLocal extends Entity {
     /**
      * @deprecated since 0.8.0; use {@link SensorSupport#set(AttributeSensor, Object)} via code like {@code sensors().set(attribute, val)}.
      */
+    @Deprecated
     <T> T setAttribute(AttributeSensor<T> attribute, T val);
 
     /**
      * @deprecated since 0.8.0; use {@link SensorSupport#modify(AttributeSensor, Function)} via code like {@code sensors().modify(attribute, modifier)}.
      */
+    @Deprecated
     @Beta
     <T> T modifyAttribute(AttributeSensor<T> attribute, Function<? super T, Maybe<T>> modifier);
 
     /**
      * @deprecated since 0.8.0; use {@link SensorSupport#emit(Sensor, Object)} via code like {@code sensors().emit(sensor, val)}.
      */
+    @Deprecated
     <T> void emit(Sensor<T> sensor, T value);
-    
-    /**
-     * @deprecated in 0.5; use {@link #getConfig(ConfigKey)}
-     */
-    <T> T getConfig(ConfigKey<T> key, T defaultValue);
-    
-    /**
-     * @deprecated in 0.5; use {@link #getConfig(HasConfigKey)}
-     */
-    <T> T getConfig(HasConfigKey<T> key, T defaultValue);
 
     /**
      * Allow us to subscribe to data from a {@link Sensor} on another entity.

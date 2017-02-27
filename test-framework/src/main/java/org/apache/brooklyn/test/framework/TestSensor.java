@@ -23,10 +23,10 @@ import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.util.core.flags.SetFromFlag;
 
+import com.google.common.collect.ImmutableMap;
+
 /**
  * Entity that tests a sensor value on another entity
- *
- * @author m4rkmckenna
  */
 @ImplementedBy(value = TestSensorImpl.class)
 public interface TestSensor extends BaseTest {
@@ -34,4 +34,12 @@ public interface TestSensor extends BaseTest {
     @SetFromFlag(nullable = false)
     ConfigKey<String> SENSOR_NAME = ConfigKeys.newConfigKey(String.class, "sensor", "Sensor to evaluate");
 
+    /**
+     * Abort-conditions - if matched, the test-case will abort early.
+     */
+    ConfigKey<Object> ABORT_CONDITIONS = ConfigKeys.newConfigKey(
+            Object.class, 
+            "abortConditions", 
+            "Abort conditions to be evaluated (abort if non-empty and any are true)",
+            ImmutableMap.<String, Object>of());
 }

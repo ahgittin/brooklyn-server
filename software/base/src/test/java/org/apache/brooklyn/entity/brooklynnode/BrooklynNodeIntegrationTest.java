@@ -34,7 +34,6 @@ import java.util.concurrent.ExecutionException;
 
 import org.apache.brooklyn.api.effector.Effector;
 import org.apache.brooklyn.api.entity.Entity;
-import org.apache.brooklyn.api.entity.EntityLocal;
 import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.entity.EntityAsserts;
@@ -172,7 +171,7 @@ services:
          */
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testCanStartAndStop() throws Exception {
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest());
         app.start(locs);
@@ -184,7 +183,7 @@ services:
         EntityAsserts.assertAttributeEquals(brooklynNode, BrooklynNode.SERVICE_UP, false);
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testSetsGlobalBrooklynPropertiesFromContents() throws Exception {
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest()
                 .configure(BrooklynNode.BROOKLYN_GLOBAL_PROPERTIES_REMOTE_PATH, pseudoBrooklynPropertiesFile.getAbsolutePath())
@@ -195,7 +194,7 @@ services:
         assertEquals(Files.readLines(pseudoBrooklynPropertiesFile, Charsets.UTF_8), ImmutableList.of("abc=def"));
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testSetsLocalBrooklynPropertiesFromContents() throws Exception {
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest()
                 .configure(BrooklynNode.BROOKLYN_LOCAL_PROPERTIES_REMOTE_PATH, pseudoBrooklynPropertiesFile.getAbsolutePath())
@@ -206,7 +205,7 @@ services:
         assertEquals(Files.readLines(pseudoBrooklynPropertiesFile, Charsets.UTF_8), ImmutableList.of("abc=def"));
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testSetsBrooklynPropertiesFromUri() throws Exception {
         File brooklynPropertiesSourceFile = File.createTempFile("brooklynnode-test", ".properties");
         Files.write("abc=def", brooklynPropertiesSourceFile, Charsets.UTF_8);
@@ -220,7 +219,7 @@ services:
         assertEquals(Files.readLines(pseudoBrooklynPropertiesFile, Charsets.UTF_8), ImmutableList.of("abc=def"));
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testSetsBrooklynCatalogFromContents() throws Exception {
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest()
                 .configure(BrooklynNode.BROOKLYN_CATALOG_REMOTE_PATH, pseudoBrooklynCatalogFile.getAbsolutePath())
@@ -231,7 +230,7 @@ services:
         assertEquals(Files.readLines(pseudoBrooklynCatalogFile, Charsets.UTF_8), ImmutableList.of("<catalog/>"));
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testSetsBrooklynCatalogFromUri() throws Exception {
         Files.write("abc=def", brooklynCatalogSourceFile, Charsets.UTF_8);
 
@@ -244,17 +243,17 @@ services:
         assertEquals(Files.readLines(pseudoBrooklynCatalogFile, Charsets.UTF_8), ImmutableList.of("abc=def"));
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testSetsBrooklynCatalogInitialBomFromContents() throws Exception {
         runBrooklynCatalogInitialBom(false);
     }
     
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testSetsBrooklynCatalogInitialBomFromUri() throws Exception {
         runBrooklynCatalogInitialBom(true);
     }
     
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void runBrooklynCatalogInitialBom(boolean useUri) throws Exception {
         String catalogContents = Joiner.on("\n").join(
                 "brooklyn.catalog:",
@@ -297,7 +296,7 @@ services:
             "\"?(running|RUNNING)\"?");
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testCopiesResources() throws Exception {
         File sourceFile = File.createTempFile("brooklynnode-test", ".properties");
         Files.write("abc=def", sourceFile, Charsets.UTF_8);
@@ -319,7 +318,7 @@ services:
         }
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testCopiesClasspathEntriesInConfigKey() throws Exception {
         String content = "abc=def";
         File classpathEntry1 = File.createTempFile("first", ".properties");
@@ -350,7 +349,7 @@ services:
         }
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testCopiesClasspathEntriesInConfigKey2() throws Exception {
         String content = "abc=def";
         File classpathEntry1 = File.createTempFile("first", ".properties");
@@ -467,7 +466,7 @@ services:
 
     // TODO test that the classpath set above is actually used
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testSetsBrooklynWebConsolePort() throws Exception {
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest()
                 .configure(BrooklynNode.HTTP_PORT, PortRanges.fromString("45000+")));
@@ -481,7 +480,7 @@ services:
         HttpTestUtils.assertHttpStatusCodeEquals(webConsoleUri.toString(), 200, 401);
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testStartsAppOnStartup() throws Exception {
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest()
                 .configure(BrooklynNode.APP, BasicApplicationImpl.class.getName()));
@@ -521,7 +520,7 @@ services:
             }});
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testStartsAppViaEffector() throws Exception {
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest());
         app.start(locs);
@@ -544,7 +543,7 @@ services:
             "\"?(running|RUNNING)\"?");
     }
     
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testUsesLocation() throws Exception {
         String brooklynPropertiesContents = 
             "brooklyn.location.named.mynamedloc=localhost:(name=myname)\n"+
@@ -578,7 +577,7 @@ services:
         assertEquals(parseJson(locatedLocationsContent, ImmutableList.of(appLocationId, "longitude"), Double.class), 45.6, 0.00001);
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testAuthenticationAndHttps() throws Exception {
         String adminPassword = "p4ssw0rd";
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest()
@@ -611,7 +610,7 @@ services:
         Assert.assertEquals(response.getResponseCode(), 200);
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testStopPlainThrowsException() throws Exception {
         BrooklynNode brooklynNode = setUpBrooklynNodeWithApp();
 
@@ -637,17 +636,17 @@ services:
         }
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testStopAndKillAppsEffector() throws Exception {
         createNodeAndExecStopEffector(BrooklynNode.STOP_NODE_AND_KILL_APPS);
     }
 
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testStopButLeaveAppsEffector() throws Exception {
         createNodeAndExecStopEffector(BrooklynNode.STOP_NODE_BUT_LEAVE_APPS);
     }
     
-    @Test(groups="Integration")
+    @Test(groups={"Integration", "Broken"})
     public void testStopAndRestartProcess() throws Exception {
         persistenceDir = Files.createTempDir();
         BrooklynNode brooklynNode = app.createAndManageChild(newBrooklynNodeSpecForTest()
@@ -671,7 +670,7 @@ services:
         // Clear the startup app so it's not started second time, in addition to the rebind state
         // TODO remove this once the startup app is created only if no previous persistence state
         brooklynNode.config().set(BrooklynNode.APP, (String)null);
-        ((EntityLocal)brooklynNode).sensors().set(BrooklynNode.APP, null);
+        brooklynNode.sensors().set(BrooklynNode.APP, null);
         
         // Restart the process; expect persisted state to have been restored, so apps still known about
         brooklynNode.invoke(BrooklynNode.RESTART, ImmutableMap.<String, Object>of(

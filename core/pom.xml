@@ -31,7 +31,7 @@
     <parent>
         <groupId>org.apache.brooklyn</groupId>
         <artifactId>brooklyn-parent</artifactId>
-        <version>0.10.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
+        <version>0.11.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
         <relativePath>../parent/pom.xml</relativePath>
     </parent>
 
@@ -58,7 +58,7 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>net.schmizz</groupId>
+            <groupId>com.hierynomus</groupId>
             <artifactId>sshj</artifactId>
         </dependency>
         <dependency>
@@ -145,6 +145,19 @@
         <dependency>
             <groupId>com.maxmind.geoip2</groupId>
             <artifactId>geoip2</artifactId>
+            <exclusions>
+              <exclusion>
+                <!--
+                  com.maxmind.db:maxmind-db:jar:1.2.1 depends on jackson-databind [2.7.0,)
+                  which causes excessive download of dependencies (all versions in the range,
+                  including snapshots). We already include it explicitly anyway so can save on
+                  the extra http requests. It's also forces maven to check frequently whether
+                  new versions are available so it can use them.
+                -->
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+              </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -280,9 +293,15 @@
                     </supportedProjectTypes>
                     <instructions>
                         <Export-Package>brooklyn.*,org.apache.brooklyn.*</Export-Package>
+                        <!--
+                          org.apache.brooklyn.rt.felix and org.apache.felix.framework are not used by code paths when working in Karaf
+                          javax.annotation;version=[1.2,2) is needed to force wiring the Brooklyn class space to javax.annotation-api.
+                            Avoids rewiring down the line when brooklyn-rest-resources is loaded.
+                        -->
                         <Import-Package>
                             !org.apache.brooklyn.rt.felix,
                             !org.apache.felix.framework,
+                            javax.annotation;version="[1.2,2)",
                             *
                         </Import-Package>
                     </instructions>

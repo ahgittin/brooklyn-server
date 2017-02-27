@@ -164,7 +164,20 @@ public class Exceptions {
         }
         throw new PropagatedRuntimeException(msg, throwable);
     }
-    
+
+    /** 
+     * Propagate exceptions which are interrupts (be it {@link InterruptedException}
+     * or {@link RuntimeInterruptedException}.
+     */
+    public static void propagateIfInterrupt(Throwable throwable) {
+        if (throwable instanceof InterruptedException) {
+            throw new RuntimeInterruptedException((InterruptedException) throwable);
+        } else if (throwable instanceof RuntimeInterruptedException) {
+            Thread.currentThread().interrupt();
+            throw (RuntimeInterruptedException) throwable;
+        }
+    }
+
     /** 
      * Propagate exceptions which are fatal.
      * <p>
@@ -172,16 +185,36 @@ public class Exceptions {
      * such as {@link InterruptedException} and {@link Error}s.
      */
     public static void propagateIfFatal(Throwable throwable) {
-        if (throwable instanceof InterruptedException) {
-            throw new RuntimeInterruptedException((InterruptedException) throwable);
-        } else if (throwable instanceof RuntimeInterruptedException) {
-            Thread.currentThread().interrupt();
-            throw (RuntimeInterruptedException) throwable;
-        } else if (throwable instanceof Error) {
+        propagateIfInterrupt(throwable);
+        if (throwable instanceof Error) {
             throw (Error) throwable;
         }
     }
 
+    /** 
+     * Indicates whether this exception is "fatal" - i.e. in normal programming, should not be 
+     * caught but should instead be propagating so the call-stack fails. For example, an interrupt
+     * should cause the task to abort rather than catching and ignoring (or "handling" incorrectly).
+     */
+    public static boolean isFatal(Throwable throwable) {
+        return (throwable instanceof InterruptedException)
+                || (throwable instanceof RuntimeInterruptedException) 
+                || (throwable instanceof Error);
+    }
+
+    public static Predicate<Throwable> isFatalPredicate() {
+        return IsFatalPredicate.INSTANCE;
+    }
+
+    private static class IsFatalPredicate implements Predicate<Throwable> {
+        private static final IsFatalPredicate INSTANCE = new IsFatalPredicate();
+        
+        @Override
+        public boolean apply(Throwable input) {
+            return input != null && isFatal(input);
+        }
+    }
+    
     /** returns the first exception of the given type, or null */
     @SuppressWarnings("unchecked")
     public static <T extends Throwable> T getFirstThrowableOfType(Throwable from, Class<T> clazz) {
@@ -309,6 +342,7 @@ public class Exceptions {
 
     /** removes uninteresting items from the top of the call stack (but keeps interesting messages), and throws 
      * @deprecated since 0.7.0 same as {@link #propagate(Throwable)} */
+    @Deprecated
     public static RuntimeException propagateCollapsed(Throwable source) {
         throw propagate(source);
     }
@@ -318,6 +352,8 @@ public class Exceptions {
         return collapseText(t, false);
     }
     
+    /** as {@link #collapseText(Throwable)} but skipping any throwables which implement {@link CanSkipInContext}
+     * and indicate they should be skipped any of the given contexts */
     public static String collapseTextInContext(Throwable t, Object ...contexts) {
         return collapseText(t, false, ImmutableSet.<Throwable>of(), contexts);
     }
@@ -426,6 +462,16 @@ public class Exceptions {
     /** Like {@link Throwable#toString()} except suppresses boring prefixes and replaces prefixes with sensible messages where required */
     public static String getMessageWithAppropriatePrefix(Throwable t) {
         return appendSeparator(getPrefixText(t), t.getMessage());
+    }
+
+    /** Returns true if the root cause is a "boring" CNF, ie a straightforward declaration that the clazz is not found;
+     * this permits callers to include the cause only when it is interesting, ie caused by a dependent class not loadable.
+     */
+    public static boolean isRootBoringClassNotFound(Exception e, String clazz) {
+        Throwable root = Throwables.getRootCause(e);
+        if (!(root instanceof ClassNotFoundException)) return false;
+        if (clazz.equals(root.getMessage())) return true;
+        return false;
     }
 
 }

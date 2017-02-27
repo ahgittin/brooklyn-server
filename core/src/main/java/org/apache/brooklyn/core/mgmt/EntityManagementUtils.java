@@ -32,9 +32,9 @@ import org.apache.brooklyn.api.entity.EntitySpec;
 import org.apache.brooklyn.api.internal.AbstractBrooklynObjectSpec;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.mgmt.Task;
-import org.apache.brooklyn.config.ConfigInheritance;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.catalog.internal.BasicBrooklynCatalog;
+import org.apache.brooklyn.core.config.BasicConfigInheritance;
 import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.effector.Effectors;
 import org.apache.brooklyn.core.entity.Entities;
@@ -75,7 +75,7 @@ public class EntityManagementUtils {
      * See {@link #newWrapperApp()} and {@link #unwrapApplication(EntitySpec)}.
      */
     public static final ConfigKey<Boolean> WRAPPER_APP_MARKER = ConfigKeys.builder(Boolean.class, "brooklyn.wrapper_app")
-            .inheritance(ConfigInheritance.NONE)
+            .runtimeInheritance(BasicConfigInheritance.NEVER_INHERITED)
             .build();
 
     /** creates an application from the given app spec, managed by the given management context */
@@ -175,7 +175,7 @@ public class EntityManagementUtils {
 
         final List<Entity> children = MutableList.of();
         for (EntitySpec<?> spec: specs) {
-            Entity child = (Entity)parent.addChild(spec);
+            Entity child = parent.addChild(spec);
             children.add(child);
         }
 
@@ -255,8 +255,9 @@ public class EntityManagementUtils {
         wrappedChild.locationSpecs(wrapperParent.getLocationSpecs());
         wrappedChild.locations(wrapperParent.getLocations());
         
-        if (!wrapperParent.getParameters().isEmpty())
-            wrappedChild.parametersReplace(wrapperParent.getParameters());
+        if (!wrapperParent.getParameters().isEmpty()) {
+            wrappedChild.parametersAdd(wrapperParent.getParameters());
+        }
 
         // prefer the wrapper ID (change in 2016-01); see notes on the catalogItemIdIfNotNull method
         wrappedChild.catalogItemIdIfNotNull(wrapperParent.getCatalogItemId());
@@ -317,8 +318,7 @@ public class EntityManagementUtils {
             // prevent merge only if a location is defined at both levels
             ((spec.getLocations().isEmpty() && spec.getLocationSpecs().isEmpty()) || 
                 (Iterables.getOnlyElement(spec.getChildren()).getLocations().isEmpty()) && Iterables.getOnlyElement(spec.getChildren()).getLocationSpecs().isEmpty())
-            // TODO what should we do with parameters? currently clobbers due to EntitySpec.parameters(...) behaviour.
-//            && (spec.getParameters().isEmpty() || Iterables.getOnlyElement(spec.getChildren()).getParameters().isEmpty())
+            // parameters are collapsed on merge so don't need to be considered here
             ;
     }
     /** @deprecated since 0.9.0 use {@link #canUnwrapEntity(EntitySpec)} */ @Deprecated

@@ -171,8 +171,7 @@ public class CampYamlLiteTest {
         Assert.assertEquals(bundle.getUrl(), OsgiStandaloneTest.BROOKLYN_TEST_OSGI_ENTITIES_URL);
         Assert.assertEquals(bundle.getVersion(), "0.1.0");
 
-        @SuppressWarnings({ "unchecked", "rawtypes" })
-        EntitySpec<?> spec1 = (EntitySpec<?>) mgmt.getCatalog().createSpec((CatalogItem)retrievedItem);
+        EntitySpec<?> spec1 = (EntitySpec<?>) mgmt.getCatalog().peekSpec(retrievedItem);
         assertNotNull(spec1);
         Assert.assertEquals(spec1.getConfig().get(TestEntity.CONF_NAME), "sample");
         
@@ -192,6 +191,7 @@ public class CampYamlLiteTest {
         assertMgmtHasSampleMyCatalogApp(symbolicName, bundleUrl);
     }
 
+    @SuppressWarnings("deprecation")
     @Test
     public void testResetXmlWithCustomEntity() throws IOException {
         TestResourceUnavailableException.throwIfResourceUnavailable(getClass(), OsgiStandaloneTest.BROOKLYN_TEST_OSGI_ENTITIES_PATH);

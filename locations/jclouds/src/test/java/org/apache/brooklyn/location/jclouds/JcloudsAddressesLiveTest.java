@@ -107,11 +107,12 @@ public class JcloudsAddressesLiveTest extends AbstractJcloudsLiveTest {
         assertNotNull(subnetIp, msg);
         assertReachableFromMachine(machine, subnetIp, msg);
 
-        // hostname is reachable from inside; not necessarily reachable from outside
+        // hostname is reachable from inside; for AWS machines, it is also reachable from outside
         assertNotNull(hostname, msg);
         assertReachableFromMachine(machine, hostname, msg);
         
         assertNotNull(subnetHostname, msg);
+        assertReachable(machine, subnetHostname, msg);
         assertReachableFromMachine(machine, subnetHostname, msg);
     }
 
@@ -195,7 +196,7 @@ public class JcloudsAddressesLiveTest extends AbstractJcloudsLiveTest {
     }
 
     @Override
-    protected void releaseMachine(JcloudsSshMachineLocation machine) {
+    protected void releaseMachine(JcloudsMachineLocation machine) {
         jcloudsLocation.release(machine);
     }
     

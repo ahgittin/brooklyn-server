@@ -32,6 +32,8 @@ import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.internal.AbstractStructuredConfigKey;
 import org.apache.brooklyn.util.collections.Jsonya;
 import org.apache.brooklyn.util.collections.MutableMap;
+import org.apache.brooklyn.util.core.flags.TypeCoercions;
+import org.apache.brooklyn.util.guava.Maybe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,10 +81,11 @@ public class MapConfigKey<V> extends AbstractStructuredConfigKey<Map<String,V>,M
             description(key.getDescription());
             defaultValue(key.getDefaultValue());
             reconfigurable(key.isReconfigurable());
-            parentInheritance(key.getParentInheritance());
+            runtimeInheritance(key.getParentInheritance());
             typeInheritance(key.getTypeInheritance());
             constraint(key.getConstraint());
         }
+        @Override
         public Builder<V> self() {
             return this;
         }
@@ -106,9 +109,11 @@ public class MapConfigKey<V> extends AbstractStructuredConfigKey<Map<String,V>,M
             return new MapConfigKey<V>(this);
         }
         
+        @Override
         public String getName() {
             return name;
         }
+        @Override
         public String getDescription() {
             return description;
         }
@@ -121,7 +126,7 @@ public class MapConfigKey<V> extends AbstractStructuredConfigKey<Map<String,V>,M
                 builder.description,
                 builder.defaultValue);
         this.reconfigurable = builder.reconfigurable;
-        this.parentInheritance = builder.parentInheritance;
+        this.runtimeInheritance = builder.runtimeInheritance;
         this.typeInheritance = builder.typeInheritance;
         // Note: it's intentionally possible to have default values that are not valid
         // per the configured constraint. If validity were checked here any class that
@@ -145,9 +150,16 @@ public class MapConfigKey<V> extends AbstractStructuredConfigKey<Map<String,V>,M
         super((Class)Map.class, subType, name, description, defaultValue);
     }
 
+    @Override
+    public String toString() {
+        return String.format("%s[MapConfigKey:%s]", name, getTypeName());
+    }
+
+    @Override
     public ConfigKey<V> subKey(String subName) {
         return super.subKey(subName);
     }
+    @Override
     public ConfigKey<V> subKey(String subName, String description) {
         return super.subKey(subName, description);
     }   
@@ -183,8 +195,15 @@ public class MapConfigKey<V> extends AbstractStructuredConfigKey<Map<String,V>,M
             return ((StructuredModification)value).applyToKeyInMap(this, target);
         if (value instanceof Map.Entry)
             return applyEntryValueToMap((Map.Entry)value, target);
-        if (!(value instanceof Map)) 
-            throw new IllegalArgumentException("Cannot set non-map entries "+value+" on "+this);
+        if (!(value instanceof Map)) {
+            Maybe<Map> coercedValue = TypeCoercions.tryCoerce(value, Map.class);
+            if (coercedValue.isPresent()) {
+                log.trace("Coerced value for {} from type {} to map", this, value.getClass().getName());
+                value = coercedValue.get();
+            } else {
+                throw new IllegalArgumentException("Cannot set non-map entries on "+this+", given type "+value.getClass().getName()+", value "+value);
+            }
+        }
         
         Map result = new MutableMap();
         for (Object entry: ((Map)value).entrySet()) {

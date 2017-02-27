@@ -21,21 +21,31 @@ package org.apache.brooklyn.core.location.cloud;
 import java.util.Collection;
 
 import com.google.common.annotations.Beta;
+import com.google.common.base.Predicate;
+import com.google.common.net.HostAndPort;
 import com.google.common.reflect.TypeToken;
 
 import org.apache.brooklyn.api.location.MachineLocationCustomizer;
 import org.apache.brooklyn.config.ConfigKey;
 import org.apache.brooklyn.core.config.BasicConfigKey;
 import org.apache.brooklyn.core.config.ConfigKeys;
+import org.apache.brooklyn.core.config.MapConfigKey;
 import org.apache.brooklyn.core.location.LocationConfigKeys;
 import org.apache.brooklyn.util.core.flags.SetFromFlag;
+import org.apache.brooklyn.util.net.Networking;
+import org.apache.brooklyn.util.text.Identifiers;
 
 public interface CloudLocationConfig {
 
     public static final ConfigKey<String> CLOUD_ENDPOINT = LocationConfigKeys.CLOUD_ENDPOINT;
     public static final ConfigKey<String> CLOUD_REGION_ID = LocationConfigKeys.CLOUD_REGION_ID;
     public static final ConfigKey<String> CLOUD_AVAILABILITY_ZONE_ID = LocationConfigKeys.CLOUD_AVAILABILITY_ZONE_ID;
-        
+
+    public static final ConfigKey<String> OAUTH_ENDPOINT = LocationConfigKeys.OAUTH_ENDPOINT;
+
+    @SetFromFlag("extensions")
+    public static final MapConfigKey<String> EXTENSION = LocationConfigKeys.EXTENSIONS;
+
     @SetFromFlag("identity")
     public static final ConfigKey<String> ACCESS_IDENTITY = LocationConfigKeys.ACCESS_IDENTITY;
     @SetFromFlag("credential")
@@ -65,24 +75,46 @@ public interface CloudLocationConfig {
     public static final ConfigKey<Integer> VM_NAME_MAX_LENGTH = ConfigKeys.newIntegerConfigKey(
         "vmNameMaxLength", "Maximum length of VM name", 60);
 
+    public static final ConfigKey<String> VM_NAME_ALLOWED_CHARACTERS = ConfigKeys.newStringConfigKey(
+            "vmNameAllowedChars", "The characters allowed in a VM name", Identifiers.UPPER_CASE_ALPHA+Identifiers.LOWER_CASE_ALPHA+Identifiers.NUMERIC+"-_");
+
     public static final ConfigKey<Integer> VM_NAME_SALT_LENGTH = ConfigKeys.newIntegerConfigKey(
         "vmNameSaltLength", "Number of characters to use for a random identifier inserted in hostname "
             + "to uniquely identify machines", 4);
 
-    public static final ConfigKey<String> POLL_FOR_FIRST_REACHABLE_ADDRESS = ConfigKeys.newStringConfigKey("pollForFirstReachableAddress", 
-            "Whether and how long to wait for reaching the VM's ip:port; "
-            + "if 'false', will default to the node's first public IP (or privae if no public IPs); "
-            + "if 'true' uses default duration; otherwise accepts a time string e.g. '5m' (the default) or a number of milliseconds", "5m");
+    ConfigKey<String> POLL_FOR_FIRST_REACHABLE_ADDRESS = ConfigKeys.newStringConfigKey("pollForFirstReachableAddress",
+            "Whether and how long to wait for reaching the VM's ip:port to be accessible over SSH or WinRM; "
+            + "if 'false', the location will will choose a public or private IP as appropriate; "
+            + "if 'true' uses default duration; otherwise accepts a time string e.g. '5m' (the default) or a number of milliseconds",
+            "5m");
 
-    public static final ConfigKey<String> WAIT_FOR_SSHABLE = ConfigKeys.newStringConfigKey("waitForSshable", 
+    @SuppressWarnings("serial")
+    ConfigKey<Predicate<? super HostAndPort>> POLL_FOR_FIRST_REACHABLE_ADDRESS_PREDICATE = ConfigKeys.newConfigKey(
+            new TypeToken<Predicate<? super HostAndPort>>(){}, 
+            "pollForFirstReachableAddress.predicate",
+            "Predicate<HostAndPort> implementation which checks whether an ip:port is reachable.");
+
+    @SuppressWarnings("serial")
+    ConfigKey<Class<? extends Predicate<? super HostAndPort>>> POLL_FOR_FIRST_REACHABLE_ADDRESS_PREDICATE_TYPE = ConfigKeys.newConfigKey(
+            new TypeToken<Class<? extends Predicate<? super HostAndPort>>>() {}, 
+            "pollForFirstReachableAddress.predicate.type",
+            "Predicate<HostAndPort> class. " +
+                    "Other keys prefixed with pollForFirstReachableAddress.predicate.<property> will be passed to the Map constructor of the Predicate<HostAndPort> implementation.",
+            Networking.IsReachablePredicate.class);
+
+    /** @deprecated since 0.11.0 use {@link #POLL_FOR_FIRST_REACHABLE_ADDRESS} instead. */
+    @Deprecated
+    ConfigKey<String> WAIT_FOR_SSHABLE = ConfigKeys.newStringConfigKey("waitForSshable",
             "Whether and how long to wait for a newly provisioned VM to be accessible via ssh; " +
             "if 'false', won't check; if 'true' uses default duration; otherwise accepts a time string e.g. '5m' (the default) or a number of milliseconds", "5m");
 
-    public static final ConfigKey<String> WAIT_FOR_WINRM_AVAILABLE = ConfigKeys.newStringConfigKey("waitForWinRmAvailable",
+    /** @deprecated since 0.11.0 use {@link #POLL_FOR_FIRST_REACHABLE_ADDRESS} instead. */
+    @Deprecated
+    ConfigKey<String> WAIT_FOR_WINRM_AVAILABLE = ConfigKeys.newStringConfigKey("waitForWinRmAvailable",
             "Whether and how long to wait for a newly provisioned VM to be accessible via WinRm; " +
-                    "if 'false', won't check; if 'true' uses default duration; otherwise accepts a time string e.g. '30m' (the default) or a number of milliseconds", "30m");
+            "if 'false', won't check; if 'true' uses default duration; otherwise accepts a time string e.g. '30m' (the default) or a number of milliseconds", "30m");
 
-    public static final ConfigKey<Boolean> LOG_CREDENTIALS = ConfigKeys.newBooleanConfigKey(
+    ConfigKey<Boolean> LOG_CREDENTIALS = ConfigKeys.newBooleanConfigKey(
             "logCredentials", 
             "Whether to log credentials of a new VM - strongly recommended never be used in production, as it is a big security hole!",
             false);
@@ -103,7 +135,7 @@ public interface CloudLocationConfig {
         "Whether to require 64-bit OS images (true), 32-bit images (false), or either (null)");
     
     public static final ConfigKey<Object> MIN_RAM = new BasicConfigKey<Object>(Object.class, "minRam",
-        "Minimum amount of RAM, either as string (4gb) or number of MB (4096), for use in selecting the machine/hardware profile", null);
+        "Minimum amount of RAM, either as string (4gb) or number of MB (4096), for use in selecting the machine/hardware profile", "1gb");
     
     public static final ConfigKey<Integer> MIN_CORES = new BasicConfigKey<Integer>(Integer.class, "minCores",
         "Minimum number of cores, for use in selecting the machine/hardware profile", null);

@@ -18,18 +18,16 @@ package org.apache.brooklyn.util.net;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 
-import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.exceptions.RuntimeInterruptedException;
 import org.apache.brooklyn.util.repeat.Repeater;
 import org.apache.brooklyn.util.time.Duration;
@@ -39,11 +37,13 @@ import org.slf4j.LoggerFactory;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.base.Stopwatch;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.net.HostAndPort;
-import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 
 /**
  * For finding an open/reachable ip:port for a node.
@@ -52,58 +52,43 @@ public class ReachableSocketFinder {
 
     private static final Logger LOG = LoggerFactory.getLogger(ReachableSocketFinder.class);
 
-    private final Predicate<HostAndPort> socketTester;
-    private final ListeningExecutorService userExecutor;
+    private final Predicate<? super HostAndPort> socketTester;
+    private final Duration gracePeriod;
 
-    public ReachableSocketFinder(ListeningExecutorService userExecutor) {
-        this(
-                new Predicate<HostAndPort>() {
-                    @Override public boolean apply(HostAndPort input) {
-                        return Networking.isReachable(input);
-                    }}, 
-                userExecutor);
+    public ReachableSocketFinder() {
+        this(Networking.isReachablePredicate());
     }
 
-    public ReachableSocketFinder(Predicate<HostAndPort> socketTester, ListeningExecutorService userExecutor) {
-        this.socketTester = checkNotNull(socketTester, "socketTester");
-        this.userExecutor = checkNotNull(userExecutor, "userExecutor");
+    public ReachableSocketFinder(Predicate<? super HostAndPort> socketTester) {
+        this(socketTester, Duration.FIVE_SECONDS);
     }
 
     /**
-     * 
+     * @param socketTester A predicate that determines the reachability of a host and port
+     * @param gracePeriod The duration to allow remaining checks to continue after a socket is reached for the first time.
+     */
+    public ReachableSocketFinder(Predicate<? super HostAndPort> socketTester, Duration gracePeriod) {
+        this.socketTester = checkNotNull(socketTester, "socketTester");
+        this.gracePeriod = checkNotNull(gracePeriod, "gracePeriod");
+    }
+
+    /**
+     * Returns the first element of sockets that is reachable.
      * @param sockets The host-and-ports to test
      * @param timeout Max time to try to connect to the ip:port
      * 
      * @return The reachable ip:port
-     * @throws NoSuchElementException If no ports accessible within the given time
-     * @throws NullPointerException  If the sockets or duration is null
+     * @throws NoSuchElementException If no ports are accessible within the given time
+     * @throws NullPointerException  If sockets or timeout is null
      * @throws IllegalStateException  If the sockets to test is empty
      */
-    public HostAndPort findOpenSocketOnNode(final Collection<? extends HostAndPort> sockets, Duration timeout) {
+    public HostAndPort findOpenSocketOnNode(final Iterable<? extends HostAndPort> sockets, Duration timeout) {
         checkNotNull(sockets, "sockets");
-        checkState(sockets.size() > 0, "No hostAndPort sockets supplied");
-        
-        LOG.debug("blocking on any reachable socket in {} for {}", sockets, timeout);
-
-        final AtomicReference<HostAndPort> result = new AtomicReference<HostAndPort>();
-        boolean passed = Repeater.create("socket-reachable")
-                .limitTimeTo(timeout)
-                .backoffTo(Duration.FIVE_SECONDS)
-                .until(new Callable<Boolean>() {
-                        public Boolean call() {
-                            Optional<HostAndPort> reachableSocket = tryReachable(sockets, Duration.seconds(2));
-                            if (reachableSocket.isPresent()) {
-                                result.compareAndSet(null, reachableSocket.get());
-                                return true;
-                            }
-                            return false;
-                        }})
-                .run();
-
-        if (passed) {
-            LOG.debug("<< socket {} opened", result);
-            assert result.get() != null;
-            return result.get();
+        checkState(!Iterables.isEmpty(sockets), "No hostAndPort sockets supplied");
+        checkNotNull(timeout, "timeout");
+        Iterator<HostAndPort> iter = findOpenSocketsOnNode(sockets, timeout).iterator();
+        if (iter.hasNext()) {
+            return iter.next();
         } else {
             LOG.warn("No sockets in {} reachable after {}", sockets, timeout);
             throw new NoSuchElementException("could not connect to any socket in " + sockets);
@@ -111,44 +96,118 @@ public class ReachableSocketFinder {
     }
 
     /**
-     * Checks if any any of the given HostAndPorts are reachable. It checks them all concurrently, and
-     * returns the first that is reachable (or Optional.absent).
+     * Returns an iterable of the elements in sockets that are reachable. The order of elements
+     * in the iterable corresponds to the order of the elements in the input, not the order in which their
+     * reachability was determined. Iterators are unmodifiable.
+     *
+     * @param sockets The host-and-ports to test
+     * @param timeout Max time to try to connect to each ip:port
+     * @return An iterable containing all sockets that are reachable according to {@link #socketTester}.
+     * @throws NullPointerException  If sockets or timeout is null
+     * @throws IllegalStateException  If the sockets to test is empty
      */
-    private Optional<HostAndPort> tryReachable(Collection<? extends HostAndPort> sockets, Duration timeout) {
-        final AtomicReference<HostAndPort> reachableSocket = new AtomicReference<HostAndPort>();
-        final CountDownLatch latch = new CountDownLatch(1);
-        List<ListenableFuture<?>> futures = Lists.newArrayList();
+    public Iterable<HostAndPort> findOpenSocketsOnNode(final Iterable<? extends HostAndPort> sockets, Duration timeout) {
+        checkNotNull(sockets, "sockets");
+        checkState(!Iterables.isEmpty(sockets), "No hostAndPort sockets supplied");
+        checkNotNull(timeout, "timeout");
+        return Optional.presentInstances(tryReachable(sockets, timeout));
+    }
+
+    /**
+     * @return An Iterable containing present values for the elements of sockets that are reachable
+     * according to {@link #socketTester} and absent values for those not. Checks are concurrent.
+     * The iterable returned is ordered according sockets.
+     */
+    private Iterable<Optional<HostAndPort>> tryReachable(Iterable<? extends HostAndPort> sockets, final Duration timeout) {
+        LOG.debug("blocking on reachable sockets in {} for {}", sockets, timeout);
+        final List<ListenableFuture<Optional<HostAndPort>>> futures = Lists.newArrayList();
+        final AtomicReference<Stopwatch> sinceFirstCompleted = new AtomicReference<>();
+        final ListeningExecutorService executor = MoreExecutors.listeningDecorator(Executors.newCachedThreadPool());
+
         for (final HostAndPort socket : sockets) {
-            futures.add(userExecutor.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            if (socketTester.apply(socket)) {
-                                reachableSocket.compareAndSet(null, socket);
-                                latch.countDown();
-                            }
-                        } catch (RuntimeInterruptedException e) {
-                            throw e;
-                        } catch (RuntimeException e) {
-                            LOG.warn("Error checking reachability of ip:port "+socket, e);
-                        }
-                    }}));
+            futures.add(executor.submit(new Callable<Optional<HostAndPort>>() {
+                Future<Boolean> checker;
+
+                private void reschedule() {
+                    checker = executor.submit(new SocketChecker(socket, socketTester));
+                }
+
+                private boolean gracePeriodExpired() {
+                    Stopwatch firstCompleted = sinceFirstCompleted.get();
+                    return firstCompleted != null && gracePeriod.subtract(Duration.of(firstCompleted)).isNegative();
+                }
+
+                /** Checks checker for completion and reschedules it if time allows. */
+                private boolean isComplete() throws ExecutionException, InterruptedException {
+                    final boolean currentCheckComplete = checker.isDone();
+                    if (currentCheckComplete && checker.get()) {
+                        LOG.trace("{} determined that {} is reachable", this, socket);
+                        sinceFirstCompleted.compareAndSet(null, Stopwatch.createStarted());
+                        return true;
+                    } else if (currentCheckComplete) {
+                        LOG.trace("{} unsure if {} is reachable, scheduling another check", this, socket);
+                        reschedule();
+                    }
+                    return false;
+                }
+
+                @Override
+                public Optional<HostAndPort> call() throws Exception {
+                    LOG.trace("Checking reachability of {}", socket);
+                    reschedule();
+                    Repeater.create()
+                            .limitTimeTo(timeout)
+                            .backoffTo(Duration.FIVE_SECONDS)
+                            .until(new Callable<Boolean>() {
+                                @Override
+                                public Boolean call() throws Exception {
+                                    return isComplete() || gracePeriodExpired();
+                                }
+                            })
+                            .run();
+                    if (checker.isDone() && checker.get()) {
+                        LOG.trace("Finished checking reachability of {}: success", socket);
+                        return Optional.of(socket);
+                    } else {
+                        LOG.trace("Finished checking reachability of {}: failure", socket);
+                        checker.cancel(true);
+                        return Optional.absent();
+                    }
+                }
+            }));
+
         }
-        
-        ListenableFuture<List<Object>> compoundFuture = Futures.successfulAsList(futures);
-        Stopwatch stopwatch = Stopwatch.createStarted();
-        try {
-            while (reachableSocket.get() == null && !compoundFuture.isDone() && timeout.isLongerThan(stopwatch)) {
-                latch.await(50, TimeUnit.MILLISECONDS);
-            }            
-            return Optional.fromNullable(reachableSocket.get());
-            
-        } catch (InterruptedException e) {
-            throw Exceptions.propagate(e);
-        } finally {
-            for (Future<?> future : futures) {
-                future.cancel(true);
+
+        ImmutableList.Builder<Optional<HostAndPort>> results = ImmutableList.builder();
+        for (ListenableFuture<Optional<HostAndPort>> f : futures) {
+            try {
+                // Each future uses the timeout so we don't need to include it here.
+                results.add(f.get());
+            } catch (InterruptedException e) {
+                throw new RuntimeInterruptedException(e);
+            } catch (ExecutionException e) {
+                LOG.trace("Suppressed exception waiting for " + f, e);
             }
         }
+        executor.shutdownNow();
+        List<Optional<HostAndPort>> builtList = results.build();
+        LOG.debug("Determined reachability of sockets {}: {}", sockets, builtList);
+        return builtList;
     }
+
+    private static class SocketChecker implements Callable<Boolean> {
+        final HostAndPort socket;
+        final Predicate<? super HostAndPort> predicate;
+
+        private SocketChecker(HostAndPort socket, Predicate<? super HostAndPort> predicate) {
+            this.socket = socket;
+            this.predicate = predicate;
+        }
+
+        @Override
+        public Boolean call() {
+            return predicate.apply(socket);
+        }
+    }
+
 }

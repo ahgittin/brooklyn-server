@@ -34,7 +34,9 @@ import org.apache.brooklyn.api.mgmt.ExecutionManager;
 import org.apache.brooklyn.api.mgmt.ManagementContext;
 import org.apache.brooklyn.api.mgmt.Task;
 import org.apache.brooklyn.api.mgmt.entitlement.EntitlementContext;
+import org.apache.brooklyn.core.mgmt.internal.AbstractManagementContext;
 import org.apache.brooklyn.util.core.config.ConfigBag;
+import org.apache.brooklyn.util.core.task.DynamicTasks;
 import org.apache.brooklyn.util.core.task.TaskTags;
 import org.apache.brooklyn.util.core.task.Tasks;
 import org.apache.brooklyn.util.guava.Maybe;
@@ -69,6 +71,8 @@ public class BrooklynTaskTags extends TaskTags {
     public static final String BROOKLYN_SERVER_TASK_TAG = "BROOKLYN-SERVER";
     /** Tag for a task which represents an effector */
     public static final String EFFECTOR_TAG = "EFFECTOR";
+    /** Tag for a task which represents a sensor being published */
+    public static final String SENSOR_TAG = "SENSOR";
     /** Tag for a task which *is* interesting, in contrast to {@link #TRANSIENT_TASK_TAG} */
     public static final String NON_TRANSIENT_TASK_TAG = "NON-TRANSIENT";
     /** indicates a task is transient, roughly that is to say it is uninteresting -- 
@@ -110,6 +114,16 @@ public class BrooklynTaskTags extends TaskTags {
     public static final String CALLER_ENTITY = "callerEntity";
     public static final String TARGET_ENTITY = "targetEntity";
     
+    /**
+     * Marks a task as running in the context of the entity. This means
+     * resolving any relative/context sensitive values against that entity.
+     * Using the entity in APIs where it is implicit - a prominent example
+     * being {@link DynamicTasks}.
+     *
+     * The result from the call should be used only when reading tags (for example
+     * to compare whether the tag already exists). The only place where the value is
+     * added to the entity tags is {@link AbstractManagementContext#getExecutionContext(Entity)}.
+     */
     public static WrappedEntity tagForContextEntity(Entity entity) {
         return new WrappedEntity(CONTEXT_ENTITY, entity);
     }
@@ -122,21 +136,42 @@ public class BrooklynTaskTags extends TaskTags {
         return new WrappedEntity(TARGET_ENTITY, entity);
     }
 
-    public static Entity getWrappedEntityOfType(Task<?> t, String wrappingType) {
+    public static WrappedEntity getWrappedEntityTagOfType(Task<?> t, String wrappingType) {
         if (t==null) return null;
-        return getWrappedEntityOfType(t.getTags(), wrappingType);
+        return getWrappedEntityTagOfType(t.getTags(), wrappingType);
     }
-    public static Entity getWrappedEntityOfType(Collection<?> tags, String wrappingType) {
+    public static WrappedEntity getWrappedEntityTagOfType(Collection<?> tags, String wrappingType) {
         for (Object x: tags)
             if ((x instanceof WrappedEntity) && ((WrappedEntity)x).wrappingType.equals(wrappingType))
-                return ((WrappedEntity)x).entity;
+                return (WrappedEntity)x;
         return null;
+    }
+
+    public static Entity getWrappedEntityOfType(Task<?> t, String wrappingType) {
+        WrappedEntity wrapper = getWrappedEntityTagOfType(t, wrappingType);
+        return (wrapper == null) ? null : wrapper.entity;
+    }
+    public static Entity getWrappedEntityOfType(Collection<?> tags, String wrappingType) {
+        WrappedEntity wrapper = getWrappedEntityTagOfType(tags, wrappingType);
+        return (wrapper == null) ? null : wrapper.entity;
     }
 
     public static Entity getContextEntity(Task<?> task) {
         return getWrappedEntityOfType(task, CONTEXT_ENTITY);
     }
 
+    public static Object getTargetOrContextEntityTag(Task<?> task) {
+        if (task == null) return null;
+        Object result = getWrappedEntityTagOfType(task, CONTEXT_ENTITY);
+        if (result!=null) return result;
+        result = getWrappedEntityTagOfType(task, TARGET_ENTITY);
+        if (result!=null) return result;
+        result = Tasks.tag(task, Entity.class, false);
+        if (result!=null) return result;
+        
+        return null;
+    }
+    
     public static Entity getTargetOrContextEntity(Task<?> t) {
         if (t==null) return null;
         Entity result = getWrappedEntityOfType(t, CONTEXT_ENTITY);
@@ -301,6 +336,7 @@ public class BrooklynTaskTags extends TaskTags {
             this.effectorName = checkNotNull(effectorName, "effectorName");
             this.parameters = parameters;
         }
+        @Override
         public String toString() {
             return EFFECTOR_TAG+"@"+entityId+":"+effectorName;
         }

@@ -377,7 +377,9 @@ public class BasicTask<T> implements TaskInternal<T> {
     public synchronized void blockUntilStarted() {
         blockUntilStarted(null);
     }
-    
+
+    // TODO: This should log a message if timeout is null and the method blocks for an unreasonably long time -
+    // it probably means someone called .get() and forgot to submit the task.
     @Override
     public synchronized boolean blockUntilStarted(Duration timeout) {
         Long endTime = timeout==null ? null : System.currentTimeMillis() + timeout.toMillisecondsRoundingUp();
@@ -558,7 +560,7 @@ public class BasicTask<T> implements TaskInternal<T> {
                     if (verbosity >= 2) {
                         rv += ": "+errorMessage;
                         StringWriter sw = new StringWriter();
-                        ((Throwable)error).printStackTrace(new PrintWriter(sw));
+                        error.printStackTrace(new PrintWriter(sw));
                         rv += "\n\n"+sw.getBuffer();
                     }
                 }
@@ -894,7 +896,7 @@ public class BasicTask<T> implements TaskInternal<T> {
     @SuppressWarnings({ "unchecked", "rawtypes" })
     @Override
     public void setSubmittedByTask(Task<?> task) {
-        submittedByTask = (Maybe)Maybe.softThen((Task)task, (Maybe)Maybe.of(BasicTask.newGoneTaskFor(task)));
+        submittedByTask = Maybe.softThen((Task)task, (Maybe)Maybe.of(BasicTask.newGoneTaskFor(task)));
     }
     
     @Override

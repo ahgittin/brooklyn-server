@@ -28,20 +28,19 @@
     <groupId>org.apache.brooklyn</groupId>
     <!-- if this depends on brooklyn-server/parent, the usual parent point, then karaf-itest has failures -->
     <artifactId>brooklyn-server</artifactId>
-    <version>0.10.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
+    <version>0.11.0-SNAPSHOT</version>  <!-- BROOKLYN_VERSION -->
     <relativePath>../pom.xml</relativePath>
   </parent>
   
   <properties>
 
-    <org.osgi.compendium.version>5.0.0</org.osgi.compendium.version>
+    <org.osgi.compendium.version>5.0.0</org.osgi.compendium.version> <!-- duplicate in brooklyn-dist/dist-karaf/pom.xml -->
     
     <lifecycle-mapping-plugin.version>1.0.0</lifecycle-mapping-plugin.version>
 
     <!-- pax-exam -->
     <pax.exam.version>4.7.0</pax.exam.version>
     <pax.url.version>2.4.3</pax.url.version>
-    <ops4j.base.version>1.5.0</ops4j.base.version>
     <tinybundles.version>1.0.0</tinybundles.version>
 
     <!-- feature repositories -->
@@ -55,26 +54,10 @@
   <modules>
     <module>init</module>
     <module>jetty-config</module>
+    <module>httpcomponent-extension</module>
     <module>features</module>
     <module>commands</module>
-    <module>apache-brooklyn</module>
-    <module>itest</module>
   </modules>
-  
-  <dependencyManagement>
-      <dependencies>
-          <dependency>
-              <groupId>org.ops4j.base</groupId>
-              <artifactId>ops4j-base-lang</artifactId>
-              <version>${ops4j.base.version}</version>
-          </dependency>
-          <dependency>
-              <groupId>org.ops4j.base</groupId>
-              <artifactId>ops4j-base-util-property</artifactId>
-              <version>${ops4j.base.version}</version>
-          </dependency>
-      </dependencies>
-  </dependencyManagement>
 
   <build>
     <pluginManagement>
@@ -147,7 +130,10 @@
         <plugin>
             <groupId>org.apache.rat</groupId>
             <artifactId>apache-rat-plugin</artifactId>
+            <!-- Overrides 0.11 from parent. Remove when parent catches up. -->
+            <version>0.12</version>
             <configuration>
+                <consoleOutput>true</consoleOutput>
                 <excludes combine.children="append">
                     <!-- Exclude sandbox because not part of distribution: not in tgz, and not uploaded to maven-central -->
                     <exclude>sandbox/**</exclude>

@@ -31,7 +31,6 @@ import java.io.InputStream;
 import java.io.PrintStream;
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -60,8 +59,6 @@ import org.apache.brooklyn.core.entity.StartableApplication;
 import org.apache.brooklyn.core.entity.factory.ApplicationBuilder;
 import org.apache.brooklyn.core.entity.trait.Startable;
 import org.apache.brooklyn.core.location.SimulatedLocation;
-import org.apache.brooklyn.core.mgmt.internal.LocalManagementContext;
-import org.apache.brooklyn.core.mgmt.internal.LocalManagementContextRegistry;
 import org.apache.brooklyn.core.objs.proxy.EntityProxy;
 import org.apache.brooklyn.core.test.entity.LocalManagementContextForTests;
 import org.apache.brooklyn.test.Asserts;
@@ -80,12 +77,12 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
+import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import com.google.common.io.Files;
 
 import groovy.lang.GroovyClassLoader;
@@ -103,7 +100,7 @@ public class CliTest {
     private ExecutorService executor;
     private StartableApplication app;
     private List<File> filesToDelete;
-    
+
     private static volatile ExampleEntity exampleEntity;
 
     // static so that they can be set from the static classes ExampleApp and ExampleEntity
@@ -130,6 +127,7 @@ public class CliTest {
                 file.delete();
             }
         }
+        app = null;
     }
     
     @Test
@@ -222,15 +220,19 @@ public class CliTest {
     public void testStopAllApplications() throws Exception {
         LaunchCommand launchCommand = new Main.LaunchCommand();
         ExampleApp app = new ExampleApp();
+        ManagementContext mgmt = null;
         try {
             Entities.startManagement(app);
+            mgmt = app.getManagementContext();
             app.start(ImmutableList.of(new SimulatedLocation()));
             assertTrue(app.running);
             
             launchCommand.stopAllApps(ImmutableList.of(app));
             assertFalse(app.running);
         } finally {
-            Entities.destroyAll(app.getManagementContext());
+            // Stopping the app will make app.getManagementContext return the "NonDeploymentManagementContext";
+            // hence we've retrieved it before calling stopAllApps()
+            if (mgmt != null) Entities.destroyAll(mgmt);
         }
     }
     
@@ -362,6 +364,7 @@ public class CliTest {
         Cli<BrooklynCommand> cli = buildCli();
         BrooklynCommand command = cli.parse("launch", "--noConsole", "--app", ExampleApp.class.getName(), "--location", "localhost");
         submitCommandAndAssertRunnableSucceeds(command, new Runnable() {
+                @Override
                 public void run() {
                     assertTrue(exampleAppConstructed);
                     assertTrue(exampleAppRunning);
@@ -374,6 +377,7 @@ public class CliTest {
         Cli<BrooklynCommand> cli = buildCli();
         BrooklynCommand command = cli.parse("launch", "--noConsole", "--app", "example-app-no-location.yaml", "--location", "localhost");
         submitCommandAndAssertRunnableSucceeds(command, new Runnable() {
+                @Override
                 public void run() {
                     assertTrue(exampleEntityRunning);
                 }
@@ -385,6 +389,7 @@ public class CliTest {
         Cli<BrooklynCommand> cli = buildCli();
         BrooklynCommand command = cli.parse("launch", "--noConsole", "--app", "example-app-no-location.yaml", "--location", "localhost:(name=testLocalhost)");
         submitCommandAndAssertRunnableSucceeds(command, new Runnable() {
+                @Override
                 public void run() {
                     assertTrue(exampleEntityRunning);
                     assertTrue(Iterables.getOnlyElement(exampleEntity.getApplication().getLocations()).getDisplayName().equals("testLocalhost"));
@@ -397,6 +402,7 @@ public class CliTest {
         Cli<BrooklynCommand> cli = buildCli();
         BrooklynCommand command = cli.parse("launch", "--noConsole", "--app", "example-app-app-location.yaml");
         submitCommandAndAssertRunnableSucceeds(command, new Runnable() {
+                @Override
                 public void run() {
                     assertTrue(exampleEntityRunning);
                     assertTrue(Iterables.getOnlyElement(exampleEntity.getApplication().getLocations()).getDisplayName().equals("appLocalhost"));
@@ -409,6 +415,7 @@ public class CliTest {
         Cli<BrooklynCommand> cli = buildCli();
         BrooklynCommand command = cli.parse("launch", "--noConsole", "--app", "example-app-app-location.yaml", "--location", "localhost");
         submitCommandAndAssertRunnableSucceeds(command, new Runnable() {
+                @Override
                 public void run() {
                     assertTrue(exampleEntityRunning);
                     assertTrue(Iterables.getFirst(exampleEntity.getApplication().getLocations(), null).getDisplayName().equals("appLocalhost"));
@@ -426,6 +433,7 @@ public class CliTest {
         runAddBomToCatalog(3);
     }
 
+    // This method assumes that only one test at a time will be running in the JVM!
     protected void runAddBomToCatalog(int numBoms) throws Exception {
         final List<String> bomFiles = Lists.newArrayList();
         final List<String> itemSymbolicNames = Lists.newArrayList();
@@ -437,24 +445,23 @@ public class CliTest {
             itemSymbolicNames.add(itemName+":"+itemVersion);
         }
 
-        final Set<LocalManagementContext> origMgmts = LocalManagementContextRegistry.getInstances();
-        
         Cli<BrooklynCommand> cli = buildCli();
         BrooklynCommand command = cli.parse("launch", "--noConsole", "--catalogAdd", Joiner.on(",").join(bomFiles));
-        submitCommandAndAssertRunnableSucceeds(command, new Runnable() {
-                public void run() {
-                    ManagementContext mgmt = assertMgmtStartedEventually();
+        submitCommandAndAssertFunctionSucceeds(command, new Function<ManagementContext, Void>() {
+                @Override
+                public Void apply(ManagementContext mgmt) {
+                    assertMgmtStartedEventually(mgmt);
                     for (String itemName : itemSymbolicNames) {
                         CatalogItem<?, ?> item = mgmt.getCatalog().getCatalogItem(CatalogUtils.getSymbolicNameFromVersionedId(itemName), CatalogUtils.getVersionFromVersionedId(itemName));
                         assertNotNull(item);
                     }
+                    return null;
                 }
-                private ManagementContext assertMgmtStartedEventually() {
-                    return Asserts.succeedsEventually(new Callable<ManagementContext>() {
-                        public ManagementContext call() {
-                            ManagementContext mgmt = Iterables.getOnlyElement(Sets.difference(LocalManagementContextRegistry.getInstances(), origMgmts));
+                private void assertMgmtStartedEventually(final ManagementContext mgmt) {
+                    Asserts.succeedsEventually(new Runnable() {
+                        @Override
+                        public void run() {
                             assertTrue(mgmt.isStartupComplete());
-                            return mgmt;
                         }});
                 }
             });
@@ -547,6 +554,7 @@ public class CliTest {
     @Test
     public void testCanCustomiseInfoCommand() throws Exception {
         Main main = new Main() {
+            @Override
             protected Class<? extends BrooklynCommand> cliInfoCommand() {
                 return CustomInfoCommand.class;
             }
@@ -567,6 +575,7 @@ public class CliTest {
     @Test
     public void testCanCustomiseLaunchCommand() throws Exception {
         Main main = new Main() {
+            @Override
             protected Class<? extends BrooklynCommand> cliLaunchCommand() {
                 return CustomLaunchCommand.class;
             }
@@ -604,6 +613,7 @@ public class CliTest {
         
         final AtomicReference<Exception> exception = new AtomicReference<Exception>();
         Thread t= new Thread(new Runnable() {
+            @Override
             public void run() {
                 try {
                     command.call();
@@ -640,23 +650,47 @@ public class CliTest {
         }
     }
 
-    private void submitCommandAndAssertRunnableSucceeds(final BrooklynCommand command, Runnable runnable) {
-        if (command instanceof LaunchCommand) {
-            ((LaunchCommand)command).useManagementContext(new LocalManagementContextForTests());
-        }
-        executor.submit(new Callable<Void>() {
-            public Void call() throws Exception {
-                try {
-                    LOG.info("Calling command: "+command);
-                    command.call();
-                    return null;
-                } catch (Throwable t) {
-                    LOG.error("Error executing command: "+t, t);
-                    throw Exceptions.propagate(t);
-                }
+    void submitCommandAndAssertRunnableSucceeds(final BrooklynCommand command, final Runnable runnable) {
+        submitCommandAndAssertFunctionSucceeds(command, new Function<ManagementContext, Void>() {
+            @Override
+            public Void apply(ManagementContext mgmt) {
+                runnable.run();
+                return null;
             }});
-
-        Asserts.succeedsEventually(MutableMap.of("timeout", Duration.ONE_MINUTE), runnable);
+    }
+    
+    // Function usage is a convoluted way of letting some callers know which management context is 
+    // being used, while others can just pass a runnable.
+    void submitCommandAndAssertFunctionSucceeds(final BrooklynCommand command, final Function<ManagementContext, Void> function) {
+        final AtomicReference<ManagementContext> mgmt = new AtomicReference<ManagementContext>();
+        if (command instanceof LaunchCommand) {
+            mgmt.set(LocalManagementContextForTests.newInstance());
+            ((LaunchCommand)command).useManagementContext(mgmt.get());
+        }
+        try {
+            executor.submit(new Callable<Void>() {
+                @Override
+                public Void call() throws Exception {
+                    try {
+                        LOG.info("Calling command: "+command);
+                        command.call();
+                        return null;
+                    } catch (Throwable t) {
+                        LOG.error("Error executing command: "+t, t);
+                        throw Exceptions.propagate(t);
+                    }
+                }});
+    
+            Runnable functionWrapper = new Runnable() {
+                @Override
+                public void run() {
+                    function.apply(mgmt.get());
+                }
+            };
+            Asserts.succeedsEventually(MutableMap.of("timeout", Duration.ONE_MINUTE), functionWrapper);
+        } finally {
+            if (mgmt.get() != null) Entities.destroyAll(mgmt.get());
+        }
     }
 
     //  An empty app to be used for testing

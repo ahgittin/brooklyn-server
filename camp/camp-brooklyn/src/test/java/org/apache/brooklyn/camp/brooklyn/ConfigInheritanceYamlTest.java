@@ -20,8 +20,8 @@ package org.apache.brooklyn.camp.brooklyn;
 
 import static org.testng.Assert.assertEquals;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.File;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -29,23 +29,30 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.apache.brooklyn.api.entity.Entity;
+import org.apache.brooklyn.api.entity.EntityType;
+import org.apache.brooklyn.api.entity.ImplementedBy;
+import org.apache.brooklyn.api.location.Location;
+import org.apache.brooklyn.api.sensor.AttributeSensor;
+import org.apache.brooklyn.config.ConfigKey;
+import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.config.MapConfigKey;
 import org.apache.brooklyn.core.entity.Entities;
 import org.apache.brooklyn.core.entity.EntityAsserts;
-import org.apache.brooklyn.core.entity.internal.EntityConfigMap;
 import org.apache.brooklyn.core.sensor.Sensors;
 import org.apache.brooklyn.core.test.entity.TestEntity;
+import org.apache.brooklyn.core.test.entity.TestEntityImpl;
 import org.apache.brooklyn.entity.software.base.EmptySoftwareProcess;
 import org.apache.brooklyn.entity.stock.BasicApplication;
 import org.apache.brooklyn.util.collections.MutableMap;
 import org.apache.brooklyn.util.core.internal.ssh.RecordingSshTool;
+import org.apache.brooklyn.util.os.Os;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.google.api.client.repackaged.com.google.common.base.Joiner;
+import com.google.common.base.Joiner;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -58,8 +65,9 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
     @SuppressWarnings("unused")
     private static final Logger LOG = LoggerFactory.getLogger(ConfigInheritanceYamlTest.class);
 
-    private Path emptyFile;
-    private Path emptyFile2;
+    private File emptyFile;
+    private File emptyFile2;
+    private File emptyFile3;
     
     private ExecutorService executor;
 
@@ -70,8 +78,9 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
         
         executor = Executors.newCachedThreadPool();
         
-        emptyFile = Files.createTempFile("ConfigInheritanceYamlTest", ".txt");
-        emptyFile2 = Files.createTempFile("ConfigInheritanceYamlTest2", ".txt");
+        emptyFile = Os.newTempFile("ConfigInheritanceYamlTest", ".txt");
+        emptyFile2 = Os.newTempFile("ConfigInheritanceYamlTest2", ".txt");
+        emptyFile3 = Os.newTempFile("ConfigInheritanceYamlTest3", ".txt");
         
         addCatalogItems(
                 "brooklyn.catalog:",
@@ -83,17 +92,17 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 "      shell.env:",
                 "        ENV1: myEnv1",
                 "      templates.preinstall:",
-                "        "+emptyFile.toUri()+": myfile",
+                "        "+emptyFile.getAbsolutePath()+": myfile",
                 "      files.preinstall:",
-                "        "+emptyFile.toUri()+": myfile",
+                "        "+emptyFile.getAbsolutePath()+": myfile",
                 "      templates.install:",
-                "        "+emptyFile.toUri()+": myfile",
+                "        "+emptyFile.getAbsolutePath()+": myfile",
                 "      files.install:",
-                "        "+emptyFile.toUri()+": myfile",
+                "        "+emptyFile.getAbsolutePath()+": myfile",
                 "      templates.runtime:",
-                "        "+emptyFile.toUri()+": myfile",
+                "        "+emptyFile.getAbsolutePath()+": myfile",
                 "      files.runtime:",
-                "        "+emptyFile.toUri()+": myfile",
+                "        "+emptyFile.getAbsolutePath()+": myfile",
                 "      provisioning.properties:",
                 "        mykey: myval",
                 "        templateOptions:",
@@ -135,8 +144,9 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
     public void tearDown() throws Exception {
         super.tearDown();
         if (executor != null) executor.shutdownNow();
-        if (emptyFile != null) Files.deleteIfExists(emptyFile);
-        if (emptyFile2 != null) Files.deleteIfExists(emptyFile2);
+        if (emptyFile != null) emptyFile.delete();
+        if (emptyFile2 != null) emptyFile2.delete();
+        if (emptyFile3 != null) emptyFile3.delete();
     }
     
     @Test
@@ -152,7 +162,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
         assertEmptySoftwareProcessConfig(
                 entity,
                 ImmutableMap.of("ENV1", "myEnv1"),
-                ImmutableMap.of(emptyFile.toUri().toString(), "myfile"),
+                ImmutableMap.of(emptyFile.getAbsolutePath(), "myfile"),
                 ImmutableMap.of("mykey", "myval", "templateOptions", ImmutableMap.of("myOptionsKey", "myOptionsVal")));
     }
     
@@ -166,17 +176,17 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 "    shell.env:",
                 "      ENV2: myEnv2",
                 "    templates.preinstall:",
-                "      "+emptyFile2.toUri()+": myfile2",
+                "      "+emptyFile2.getAbsolutePath()+": myfile2",
                 "    files.preinstall:",
-                "      "+emptyFile2.toUri()+": myfile2",
+                "      "+emptyFile2.getAbsolutePath()+": myfile2",
                 "    templates.install:",
-                "      "+emptyFile2.toUri()+": myfile2",
+                "      "+emptyFile2.getAbsolutePath()+": myfile2",
                 "    files.install:",
-                "      "+emptyFile2.toUri()+": myfile2",
+                "      "+emptyFile2.getAbsolutePath()+": myfile2",
                 "    templates.runtime:",
-                "      "+emptyFile2.toUri()+": myfile2",
+                "      "+emptyFile2.getAbsolutePath()+": myfile2",
                 "    files.runtime:",
-                "      "+emptyFile2.toUri()+": myfile2",
+                "      "+emptyFile2.getAbsolutePath()+": myfile2",
                 "    provisioning.properties:",
                 "      mykey2: myval2",
                 "      templateOptions:",
@@ -188,13 +198,13 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
         assertEmptySoftwareProcessConfig(
                 entity,
                 ImmutableMap.of("ENV1", "myEnv1", "ENV2", "myEnv2"),
-                ImmutableMap.of(emptyFile.toUri().toString(), "myfile", emptyFile2.toUri().toString(), "myfile2"),
+                ImmutableMap.of(emptyFile.getAbsolutePath(), "myfile", emptyFile2.getAbsolutePath(), "myfile2"),
                 ImmutableMap.of("mykey", "myval", "mykey2", "myval2", "templateOptions", 
                         ImmutableMap.of("myOptionsKey", "myOptionsVal", "myOptionsKey2", "myOptionsVal2")));
     }
     
     @Test
-    public void testInheritsParentConfig() throws Exception {
+    public void testInheritsRuntimeParentConfig() throws Exception {
         String yaml = Joiner.on("\n").join(
                 "location: localhost-stub",
                 "services:",
@@ -202,18 +212,6 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 "  brooklyn.config:",
                 "    shell.env:",
                 "      ENV1: myEnv1",
-                "    templates.preinstall:",
-                "      "+emptyFile.toUri()+": myfile",
-                "    files.preinstall:",
-                "      "+emptyFile.toUri()+": myfile",
-                "    templates.install:",
-                "      "+emptyFile.toUri()+": myfile",
-                "    files.install:",
-                "      "+emptyFile.toUri()+": myfile",
-                "    templates.runtime:",
-                "      "+emptyFile.toUri()+": myfile",
-                "    files.runtime:",
-                "      "+emptyFile.toUri()+": myfile",
                 "    provisioning.properties:",
                 "      mykey: myval",
                 "      templateOptions:",
@@ -227,21 +225,14 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
         assertEmptySoftwareProcessConfig(
                 entity,
                 ImmutableMap.of("ENV1", "myEnv1"),
-                ImmutableMap.of(emptyFile.toUri().toString(), "myfile"),
+                null,
                 ImmutableMap.of("mykey", "myval", "templateOptions", ImmutableMap.of("myOptionsKey", "myOptionsVal")));
     }
     
-    /**
-     * TODO This hangs because the attributeWhenReady self-reference is resolved against the entity
-     * looking up the config value (i.e. the child). Therefore it waits for the TestEntity to have
-     * a value for that sensor, but this never happens. The way to avoid this is to explicitly set
-     * the component that the attributeWhenReady should apply to (e.g. see {@link #testInheritsParentConfigTask()}.
-     * 
-     * Do we want to just exclude this test? Or do we want to "fix" it? Which entity should the
-     * attributeWhenReady apply to?
-     */
-    @Test(groups={"Broken", "WIP"}, enabled=false)
-    public void testInheritsParentConfigTaskWithSelfScope() throws Exception {
+    // Fixed Sept 2016, attributeWhenReady self-reference is now resolved against the entity defining the config value.
+    // Prior to this it was resolved against the caller's scope.
+    @Test
+    public void testInheritsRuntimeParentConfigTaskWithSelfScope() throws Exception {
         String yaml = Joiner.on("\n").join(
                 "services:",
                 "- type: org.apache.brooklyn.entity.stock.BasicApplication",
@@ -260,6 +251,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
         
         // Task that resolves slowly
         executor.submit(new Callable<Object>() {
+            @Override
             public Object call() {
                 return app.sensors().set(Sensors.newStringSensor("myOtherSensor"), "myObject");
             }});
@@ -267,7 +259,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
     }
     
     @Test
-    public void testInheritsParentConfigTask() throws Exception {
+    public void testInheritsRuntimeParentConfigTask() throws Exception {
         String yaml = Joiner.on("\n").join(
                 "services:",
                 "- type: org.apache.brooklyn.entity.stock.BasicApplication",
@@ -287,6 +279,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
         
         // Task that resolves slowly
         executor.submit(new Callable<Object>() {
+            @Override
             public Object call() {
                 return app.sensors().set(Sensors.newStringSensor("myOtherSensor"), "myObject");
             }});
@@ -294,7 +287,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
     }
     
     @Test
-    public void testInheritsParentConfigOfTypeMapWithIndividualKeys() throws Exception {
+    public void testInheritsRuntimeParentConfigOfTypeMapWithIndividualKeys() throws Exception {
         String yaml = Joiner.on("\n").join(
                 "services:",
                 "- type: org.apache.brooklyn.entity.stock.BasicApplication",
@@ -312,7 +305,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
     }
     
     @Test
-    public void testInheritsParentConfigOfTypeMapWithOneBigVal() throws Exception {
+    public void testInheritsRuntimeParentConfigOfTypeMapWithOneBigVal() throws Exception {
         String yaml = Joiner.on("\n").join(
                 "services:",
                 "- type: org.apache.brooklyn.entity.stock.BasicApplication",
@@ -331,60 +324,79 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
     }
     
     @Test
-    public void testOverridesParentConfig() throws Exception {
+    public void testOverridesRuntimeParentConfig() throws Exception {
         String yaml = Joiner.on("\n").join(
                 "location: localhost-stub",
                 "services:",
                 "- type: org.apache.brooklyn.entity.stock.BasicApplication",
                 "  brooklyn.config:",
                 "    shell.env:",
-                "      ENV1: myEnv1",
+                "      ENV: myEnv",
+                "      ENV3: myEnv",
                 "    templates.preinstall:",
-                "      "+emptyFile.toUri()+": myfile",
+                "      "+emptyFile.getAbsolutePath()+": myfile",
+                "      "+emptyFile3.getAbsolutePath()+": myfile3",
                 "    files.preinstall:",
-                "      "+emptyFile.toUri()+": myfile",
+                "      "+emptyFile.getAbsolutePath()+": myfile",
+                "      "+emptyFile3.getAbsolutePath()+": myfile3",
                 "    templates.install:",
-                "      "+emptyFile.toUri()+": myfile",
+                "      "+emptyFile.getAbsolutePath()+": myfile",
+                "      "+emptyFile3.getAbsolutePath()+": myfile3",
                 "    files.install:",
-                "      "+emptyFile.toUri()+": myfile",
+                "      "+emptyFile.getAbsolutePath()+": myfile",
+                "      "+emptyFile3.getAbsolutePath()+": myfile3",
                 "    templates.runtime:",
-                "      "+emptyFile.toUri()+": myfile",
+                "      "+emptyFile.getAbsolutePath()+": myfile",
+                "      "+emptyFile3.getAbsolutePath()+": myfile3",
                 "    files.runtime:",
-                "      "+emptyFile.toUri()+": myfile",
+                "      "+emptyFile.getAbsolutePath()+": myfile",
+                "      "+emptyFile3.getAbsolutePath()+": myfile3",
                 "    provisioning.properties:",
                 "      mykey: myval",
+                "      mykey3: myval",
                 "      templateOptions:",
                 "        myOptionsKey: myOptionsVal", 
+                "        myOptionsKey3: myOptionsVal", 
                 "  brooklyn.children:",
                 "  - type: org.apache.brooklyn.entity.software.base.EmptySoftwareProcess",
                 "    brooklyn.config:",
                 "      shell.env:",
                 "        ENV2: myEnv2",
+                "        ENV3: myEnv3",
                 "      templates.preinstall:",
-                "        "+emptyFile2.toUri()+": myfile2",
+                "        "+emptyFile2.getAbsolutePath()+": myfile2",
+                "        "+emptyFile3.getAbsolutePath()+": myfile3",
                 "      files.preinstall:",
-                "        "+emptyFile2.toUri()+": myfile2",
+                "        "+emptyFile2.getAbsolutePath()+": myfile2",
+                "        "+emptyFile3.getAbsolutePath()+": myfile3",
                 "      templates.install:",
-                "        "+emptyFile2.toUri()+": myfile2",
+                "        "+emptyFile2.getAbsolutePath()+": myfile2",
+                "        "+emptyFile3.getAbsolutePath()+": myfile3",
                 "      files.install:",
-                "        "+emptyFile2.toUri()+": myfile2",
+                "        "+emptyFile2.getAbsolutePath()+": myfile2",
+                "        "+emptyFile3.getAbsolutePath()+": myfile3",
                 "      templates.runtime:",
-                "        "+emptyFile2.toUri()+": myfile2",
+                "        "+emptyFile2.getAbsolutePath()+": myfile2",
+                "        "+emptyFile3.getAbsolutePath()+": myfile3",
                 "      files.runtime:",
-                "        "+emptyFile2.toUri()+": myfile2",
+                "        "+emptyFile2.getAbsolutePath()+": myfile2",
+                "        "+emptyFile3.getAbsolutePath()+": myfile3",
                 "      provisioning.properties:",
                 "        mykey2: myval2",
+                "        mykey3: myval3",
                 "        templateOptions:",
-                "          myOptionsKey2: myOptionsVal2");
+                "          myOptionsKey2: myOptionsVal2",
+                "          myOptionsKey3: myOptionsVal3");
         
         Entity app = createStartWaitAndLogApplication(yaml);
         Entity entity = Iterables.getOnlyElement(app.getChildren());
         
         assertEmptySoftwareProcessConfig(
                 entity,
-                ImmutableMap.of("ENV2", "myEnv2"),
-                ImmutableMap.of(emptyFile2.toUri().toString(), "myfile2"),
-                ImmutableMap.of("mykey2", "myval2", "templateOptions", ImmutableMap.of("myOptionsKey2", "myOptionsVal2")));
+                ImmutableMap.of("ENV", "myEnv", "ENV2", "myEnv2", "ENV3", "myEnv3"),
+                ImmutableMap.of(emptyFile.getAbsolutePath(), "myfile", emptyFile2.getAbsolutePath(), "myfile2", emptyFile3.getAbsolutePath(), "myfile3"),
+                ImmutableMap.of("mykey", "myval", "mykey2", "myval2", "mykey3", "myval3", 
+                    "templateOptions", ImmutableMap.of("myOptionsKey", "myOptionsVal", "myOptionsKey2", "myOptionsVal2", "myOptionsKey3", "myOptionsVal3")));
     }
     
     @Test
@@ -401,9 +413,9 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 "        type: java.util.Map",
                 "        inheritance.type: deep_merge",
                 "        default: {myDefaultKey: myDefaultVal}",
-                "      - name: map.type-always",
+                "      - name: map.type-overwrite",
                 "        type: java.util.Map",
-                "        inheritance.type: always",
+                "        inheritance.type: overwrite",
                 "        default: {myDefaultKey: myDefaultVal}",
                 "      - name: map.type-never",
                 "        type: java.util.Map",
@@ -415,7 +427,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 "      brooklyn.config:",
                 "        map.type-merged:",
                 "          mykey: myval",
-                "        map.type-always:",
+                "        map.type-overwrite:",
                 "          mykey: myval",
                 "        map.type-never:",
                 "          mykey: myval");
@@ -429,9 +441,9 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
             Entity app = createStartWaitAndLogApplication(yaml);
             TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
     
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-merged")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-always")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-never")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-merged", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-overwrite", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-never", null);
         }
 
         // Test override defaults
@@ -442,7 +454,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                     "  brooklyn.config:",
                     "    map.type-merged:",
                     "      mykey2: myval2",
-                    "    map.type-always:",
+                    "    map.type-overwrite:",
                     "      mykey2: myval2",
                     "    map.type-never:",
                     "      mykey2: myval2");
@@ -450,9 +462,10 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
             Entity app = createStartWaitAndLogApplication(yaml);
             TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
     
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-merged")), ImmutableMap.of("mykey2", "myval2"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-always")), ImmutableMap.of("mykey2", "myval2"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-never")), ImmutableMap.of("mykey2", "myval2"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-merged", ImmutableMap.of("mykey2", "myval2"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-overwrite", ImmutableMap.of("mykey2", "myval2"));
+            assertDeclaredKeyValueEquals(entity, "map.type-never", null);
+            assertAnonymousKeyValueEquals(entity, "map.type-never", ImmutableMap.of("mykey2", "myval2"));
         }
 
         // Test retrieval of explicit config
@@ -465,9 +478,10 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
             Entity app = createStartWaitAndLogApplication(yaml);
             TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
     
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-merged")), ImmutableMap.of("mykey", "myval"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-always")), ImmutableMap.of("mykey", "myval"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-never")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-merged", ImmutableMap.of("mykey", "myval"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-overwrite", ImmutableMap.of("mykey", "myval"));
+            assertDeclaredKeyValueEquals(entity, "map.type-never", null);
+            assertAnonymousKeyValueEquals(entity, "map.type-never", ImmutableMap.of("mykey", "myval"));
         }
         
         // Test merging/overriding of explicit config
@@ -478,7 +492,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                     "  brooklyn.config:",
                     "    map.type-merged:",
                     "      mykey2: myval2",
-                    "    map.type-always:",
+                    "    map.type-overwrite:",
                     "      mykey2: myval2",
                     "    map.type-never:",
                     "      mykey2: myval2");
@@ -486,14 +500,15 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
             Entity app = createStartWaitAndLogApplication(yaml);
             TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
     
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-merged")), ImmutableMap.of("mykey", "myval", "mykey2", "myval2"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-always")), ImmutableMap.of("mykey2", "myval2"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-never")), ImmutableMap.of("mykey2", "myval2"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-merged", ImmutableMap.of("mykey", "myval", "mykey2", "myval2"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-overwrite", ImmutableMap.of("mykey2", "myval2"));
+            assertDeclaredKeyValueEquals(entity, "map.type-never", null);
+            assertAnonymousKeyValueEquals(entity, "map.type-never", ImmutableMap.of("mykey2", "myval2"));
         }
     }
     
     @Test
-    public void testParentInheritanceOptions() throws Exception {
+    public void testEntityRuntimeInheritanceOptions() throws Exception {
         addCatalogItems(
                 "brooklyn.catalog:",
                 "  itemType: entity",
@@ -504,17 +519,43 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 "      brooklyn.parameters:",
                 "      - name: map.type-merged",
                 "        type: java.util.Map",
-                "        inheritance.parent: deep_merge",
+                "        inheritance.runtime: deep_merge",
                 "        default: {myDefaultKey: myDefaultVal}",
-                "      - name: map.type-always",
+                "      - name: map.type-overwrite",
                 "        type: java.util.Map",
-                "        inheritance.parent: always",
+                "        inheritance.runtime: overwrite",
                 "        default: {myDefaultKey: myDefaultVal}",
                 "      - name: map.type-never",
                 "        type: java.util.Map",
-                "        inheritance.parent: none",
+                "        inheritance.runtime: never",
+                "        default: {myDefaultKey: myDefaultVal}",
+                "      - name: map.type-not-reinherited",
+                "        type: java.util.Map",
+                "        inheritance.runtime: not_reinherited",
                 "        default: {myDefaultKey: myDefaultVal}");
         
+        // An entity with same key names as "entity-with-keys", but no default values.
+        addCatalogItems(
+                "brooklyn.catalog:",
+                "  itemType: entity",
+                "  items:",
+                "  - id: entity-with-keys-dups-no-defaults",
+                "    item:",
+                "      type: org.apache.brooklyn.core.test.entity.TestEntity",
+                "      brooklyn.parameters:",
+                "      - name: map.type-merged",
+                "        type: java.util.Map",
+                "        inheritance.runtime: deep_merge",
+                "      - name: map.type-overwrite",
+                "        type: java.util.Map",
+                "        inheritance.runtime: overwrite",
+                "      - name: map.type-never",
+                "        type: java.util.Map",
+                "        inheritance.runtime: never",
+                "      - name: map.type-not-reinherited",
+                "        type: java.util.Map",
+                "        inheritance.runtime: not_reinherited");
+
         // Test retrieval of defaults
         {
             String yaml = Joiner.on("\n").join(
@@ -526,9 +567,10 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
             Entity app = createStartWaitAndLogApplication(yaml);
             TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
     
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-merged")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-always")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-never")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-merged", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-overwrite", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-never", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-not-reinherited", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
         }
 
         // Test override defaults in parent entity
@@ -539,9 +581,11 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                     "  brooklyn.config:",
                     "    map.type-merged:",
                     "      mykey: myval",
-                    "    map.type-always:",
+                    "    map.type-overwrite:",
                     "      mykey: myval",
                     "    map.type-never:",
+                    "      mykey: myval",
+                    "    map.type-not-reinherited:",
                     "      mykey: myval",
                     "  brooklyn.children:",
                     "  - type: entity-with-keys");
@@ -549,9 +593,10 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
             Entity app = createStartWaitAndLogApplication(yaml);
             TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
     
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-merged")), ImmutableMap.of("mykey", "myval"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-always")), ImmutableMap.of("mykey", "myval"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-never")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-merged", ImmutableMap.of("mykey", "myval"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-overwrite", ImmutableMap.of("mykey", "myval"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-never", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-not-reinherited", ImmutableMap.of("mykey", "myval"));
         }
 
         // Test merging/overriding of explicit config
@@ -562,26 +607,118 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                     "  brooklyn.config:",
                     "    map.type-merged:",
                     "      mykey: myval",
-                    "    map.type-always:",
+                    "    map.type-overwrite:",
                     "      mykey: myval",
                     "    map.type-never:",
+                    "      mykey: myval",
+                    "    map.type-not-reinherited:",
                     "      mykey: myval",
                     "  brooklyn.children:",
                     "  - type: entity-with-keys",
                     "    brooklyn.config:",
                     "      map.type-merged:",
                     "        mykey2: myval2",
-                    "      map.type-always:",
+                    "      map.type-overwrite:",
                     "        mykey2: myval2",
                     "      map.type-never:",
+                    "        mykey2: myval2",
+                    "      map.type-not-reinherited:",
                     "        mykey2: myval2");
             
             Entity app = createStartWaitAndLogApplication(yaml);
             TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
     
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-merged")), ImmutableMap.of("mykey", "myval", "mykey2", "myval2"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-always")), ImmutableMap.of("mykey2", "myval2"));
-            assertEquals(entity.config().get(entity.getEntityType().getConfigKey("map.type-never")), ImmutableMap.of("mykey2", "myval2"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-merged", ImmutableMap.of("mykey", "myval", "mykey2", "myval2"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-overwrite", ImmutableMap.of("mykey2", "myval2"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-never", ImmutableMap.of("mykey2", "myval2"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(entity, "map.type-not-reinherited", ImmutableMap.of("mykey2", "myval2"));
+        }
+        
+        // Test inheritance by child that does not explicitly declare those keys itself
+        {
+            String yaml = Joiner.on("\n").join(
+                    "services:",
+                    "- type: entity-with-keys",
+                    "  brooklyn.config:",
+                    "    map.type-merged:",
+                    "      mykey: myval",
+                    "    map.type-overwrite:",
+                    "      mykey: myval",
+                    "    map.type-never:",
+                    "      mykey: myval",
+                    "    map.type-not-reinherited:",
+                    "      mykey: myval",
+                    "  brooklyn.children:",
+                    "  - type: " + TestEntity.class.getName());
+            
+            Entity app = createStartWaitAndLogApplication(yaml);
+            TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
+            TestEntity child = (TestEntity) Iterables.getOnlyElement(entity.getChildren());
+
+            // Not using `assertConfigEquals(child, ...)`, bacause child.getEntityType().getConfigKey() 
+            // will not find these keys.
+            //
+            // TODO Note the different behaviour for "never" and "not-reinherited" keys for if an 
+            // untyped key is used, versus the strongly typed key. We can live with that - I wouldn't
+            // expect an implementation of TestEntity to try to use such keys that it doesn't know 
+            // about!
+            assertEquals(child.config().get(entity.getEntityType().getConfigKey("map.type-merged")), ImmutableMap.of("mykey", "myval"));
+            assertEquals(child.config().get(entity.getEntityType().getConfigKey("map.type-overwrite")), ImmutableMap.of("mykey", "myval"));
+            assertEquals(child.config().get(entity.getEntityType().getConfigKey("map.type-never")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertEquals(child.config().get(entity.getEntityType().getConfigKey("map.type-not-reinherited")), ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            
+            assertEquals(child.config().get(ConfigKeys.newConfigKey(Map.class, "map.type-merged")), ImmutableMap.of("mykey", "myval"));
+            assertEquals(child.config().get(ConfigKeys.newConfigKey(Map.class, "map.type-overwrite")), ImmutableMap.of("mykey", "myval"));
+            assertEquals(child.config().get(ConfigKeys.newConfigKey(Map.class, "map.type-never")), null);
+            assertEquals(child.config().get(ConfigKeys.newConfigKey(Map.class, "map.type-not-reinherited")), null);
+        }
+        
+        // Test inheritance by child with duplicated keys that have no defaults - does it get runtime-management parent's defaults?
+        {
+            String yaml = Joiner.on("\n").join(
+                    "services:",
+                    "- type: entity-with-keys",
+                    "  brooklyn.children:",
+                    "  - type: entity-with-keys-dups-no-defaults");
+            
+            Entity app = createStartWaitAndLogApplication(yaml);
+            TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
+            TestEntity child = (TestEntity) Iterables.getOnlyElement(entity.getChildren());
+    
+            // Note this merges the default values from the parent and child (i.e. the child's default 
+            // value does not override the parent's.
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(child, "map.type-merged", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(child, "map.type-overwrite", ImmutableMap.of("myDefaultKey", "myDefaultVal"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(child, "map.type-never", null);
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(child, "map.type-not-reinherited", null);
+        }
+        
+        // Test inheritance by child with duplicated keys that have no defaults - does it get runtime-management parent's explicit vals?
+        {
+            String yaml = Joiner.on("\n").join(
+                    "services:",
+                    "- type: entity-with-keys",
+                    "  brooklyn.config:",
+                    "    map.type-merged:",
+                    "      mykey: myval",
+                    "    map.type-overwrite:",
+                    "      mykey: myval",
+                    "    map.type-never:",
+                    "      mykey: myval",
+                    "    map.type-not-reinherited:",
+                    "      mykey: myval",
+                    "  brooklyn.children:",
+                    "  - type: entity-with-keys-dups-no-defaults");
+            
+            Entity app = createStartWaitAndLogApplication(yaml);
+            TestEntity entity = (TestEntity) Iterables.getOnlyElement(app.getChildren());
+            TestEntity child = (TestEntity) Iterables.getOnlyElement(entity.getChildren());
+    
+            
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(child, "map.type-merged", ImmutableMap.of("mykey", "myval"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(child, "map.type-overwrite", ImmutableMap.of("mykey", "myval"));
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(child, "map.type-never", null);
+            assertDeclaredKeyAndAnonymousKeyValuesEqual(child, "map.type-not-reinherited", null);
         }
     }
     
@@ -639,10 +776,9 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
         EntityAsserts.assertConfigEquals(entity, EmptySoftwareProcess.SHELL_ENVIRONMENT, expectedEnv);
     }
     
-    // TODO Has never worked, and probably hard to fix?! We need to figure out that "env" corresponds to the
-    // config key. Maybe FlagUtils could respect SetFromFlags when returning Map<String,ConfigKey>?
-    @Test(groups={"WIP", "Broken"})
+    @Test
     public void testExtendsSuperTypeConfigMixingShortOverridingShortName() throws Exception {
+        // fixed Sept 2016
         ImmutableMap<String, Object> expectedEnv = ImmutableMap.<String, Object>of("ENV1", "myEnv1", "ENV2", "myEnv2");
 
         // super-type has env; sub-type env
@@ -750,13 +886,8 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 ImmutableMap.of("mykey1", "myval1", "mykey2", "myval2", "mykey3", "myval3"));
     }
 
-    /**
-     * TODO Has always failed, and probably hard to fix?! This is due to the way 
-     * {@link EntityConfigMap#setInheritedConfig(Map, org.apache.brooklyn.util.core.config.ConfigBag)} works:
-     * the parent overrides the grandparent's config. So we only get mykey2+mykey3.
-     */
-    @Test(groups={"Broken", "WIP"})
-    public void testExtendsParentMultipleLevels() throws Exception {
+    @Test
+    public void testExtendsRuntimeParentMultipleLevels() throws Exception {
         addCatalogItems(
                 "brooklyn.catalog:",
                 "  itemType: entity",
@@ -767,7 +898,7 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 "      brooklyn.parameters:",
                 "      - name: map.type-merged",
                 "        type: java.util.Map",
-                "        inheritance.parent: deep_merge");
+                "        inheritance.runtime: deep_merge");
 
         String yaml = Joiner.on("\n").join(
                 "location: localhost-stub",
@@ -794,6 +925,62 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
                 ImmutableMap.<String, Object>of("mykey1", "myval1", "mykey2", "myval2", "mykey3", "myval3"));
     }
 
+    // See https://issues.apache.org/jira/browse/BROOKLYN-377
+    @Test(invocationCount=20, groups="Integration")
+    public void testConfigOnRuntimeParentUsesConfigKeyDeclaredOnParentManyTimes() throws Exception {
+        testConfigOnRuntimeParentUsesConfigKeyDeclaredOnParent();
+    }
+    
+    // See https://issues.apache.org/jira/browse/BROOKLYN-377
+    @Test
+    public void testConfigOnRuntimeParentUsesConfigKeyDeclaredOnParent() throws Exception {
+        addCatalogItems(
+                "brooklyn.catalog:",
+                "  version: 1.0.0",
+                "  itemType: entity",
+                "  items:",
+                "  - id: test-entity",
+                "    item:",
+                "      type: "+MyTestEntity.class.getName(), 
+                "  - id: test-app",
+                "    item:",
+                "      type: " + BasicApplication.class.getName(),
+                "      brooklyn.parameters:",
+                "      - name: myParam",
+                "        type: String",
+                "        default: myVal",
+                "      brooklyn.config:",
+                "        test.confName: $brooklyn:scopeRoot().config(\"myParam\")",
+                "      brooklyn.children:",
+                "      - type: test-entity"
+                );
+
+        Entity app = createStartWaitAndLogApplication(Joiner.on("\n").join(
+                "services:",
+                "- type: "+BasicApplication.class.getName(),
+                "  brooklyn.children:",
+                "  - type: test-app"));
+        
+        MyTestEntity testEntity = (MyTestEntity) Iterables.find(Entities.descendantsAndSelf(app), Predicates.instanceOf(MyTestEntity.class));
+        assertEquals(testEntity.config().get(MyTestEntity.CONF_NAME), "myVal");
+        assertEquals(testEntity.sensors().get(MyTestEntity.MY_SENSOR), "myVal");
+    }
+
+    @ImplementedBy(MyTestEntityImpl.class)
+    public static interface MyTestEntity extends TestEntity {
+        public static final AttributeSensor<String> MY_SENSOR = Sensors.newStringSensor("myTestEntity.sensor");
+    }
+    
+    public static class MyTestEntityImpl extends TestEntityImpl implements MyTestEntity {
+        @Override
+        public void start(Collection<? extends Location> locs) {
+            String val = getConfig(CONF_NAME);
+            sensors().set(MY_SENSOR, val);
+            super.start(locs);
+            
+        }
+    }
+
     protected void assertEmptySoftwareProcessConfig(Entity entity, Map<String, ?> expectedEnv, Map<String, String> expectedFiles, Map<String, ?> expectedProvisioningProps) {
         EntityAsserts.assertConfigEquals(entity, EmptySoftwareProcess.SHELL_ENVIRONMENT, MutableMap.<String, Object>copyOf(expectedEnv));
         
@@ -807,4 +994,27 @@ public class ConfigInheritanceYamlTest extends AbstractYamlTest {
         
         EntityAsserts.assertConfigEquals(entity, EmptySoftwareProcess.PROVISIONING_PROPERTIES, MutableMap.<String, Object>copyOf(expectedProvisioningProps));
     }
+
+    /**
+     * Retrieves a config value using the named key - the key is looked up in two ways:
+     * <ul>
+     *   <li>Lookup the key on the entity (see {@link EntityType#getConfigKey(String)})
+     *   <li>Construct a new untyped key (see {@link ConfigKeys#newConfigKey(Class, String)})
+     * </ul>
+     */
+    private void assertDeclaredKeyAndAnonymousKeyValuesEqual(Entity entity, String keyName, Object expected) {
+        assertDeclaredKeyValueEquals(entity, keyName, expected);
+        assertAnonymousKeyValueEquals(entity, keyName, expected);
+    }
+    
+    private void assertDeclaredKeyValueEquals(Entity entity, String keyName, Object expected) {
+        ConfigKey<?> key1 = entity.getEntityType().getConfigKey(keyName);
+        assertEquals(entity.config().get(key1), expected, "key="+keyName);
+    }
+
+    private void assertAnonymousKeyValueEquals(Entity entity, String keyName, Object expected) {
+        ConfigKey<?> key2 = ConfigKeys.newConfigKey(Object.class, keyName);
+        assertEquals(entity.config().get(key2), expected, "key="+keyName);
+    }
+
 }

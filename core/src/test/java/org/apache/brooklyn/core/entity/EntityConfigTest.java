@@ -22,6 +22,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -36,15 +37,15 @@ import org.apache.brooklyn.api.entity.ImplementedBy;
 import org.apache.brooklyn.api.mgmt.ExecutionManager;
 import org.apache.brooklyn.api.mgmt.Task;
 import org.apache.brooklyn.config.ConfigKey;
-import org.apache.brooklyn.config.ConfigMap;
 import org.apache.brooklyn.core.config.ConfigKeys;
 import org.apache.brooklyn.core.config.ConfigPredicates;
 import org.apache.brooklyn.core.sensor.BasicAttributeSensorAndConfigKey.IntegerAttributeSensorAndConfigKey;
 import org.apache.brooklyn.core.test.BrooklynAppUnitTestSupport;
 import org.apache.brooklyn.core.test.entity.TestEntity;
+import org.apache.brooklyn.entity.stock.BasicEntity;
+import org.apache.brooklyn.test.Asserts;
 import org.apache.brooklyn.util.core.flags.SetFromFlag;
 import org.apache.brooklyn.util.core.task.BasicTask;
-import org.apache.brooklyn.util.core.task.DeferredSupplier;
 import org.apache.brooklyn.util.core.task.DeferredSupplier;
 import org.apache.brooklyn.util.core.task.Tasks;
 import org.apache.brooklyn.util.exceptions.Exceptions;
@@ -88,9 +89,9 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
                 .configure("myentity.myconfig", "myval1")
                 .configure("myentity.myconfigwithflagname", "myval2"));
         
-        assertEquals(entity.getAllConfig(), ImmutableMap.of(MyEntity.MY_CONFIG, "myval1", MyEntity.MY_CONFIG_WITH_FLAGNAME, "myval2"));
-        assertEquals(entity.getAllConfigBag().getAllConfig(), ImmutableMap.of("myentity.myconfig", "myval1", "myentity.myconfigwithflagname", "myval2"));
-        assertEquals(entity.getLocalConfigBag().getAllConfig(), ImmutableMap.of("myentity.myconfig", "myval1", "myentity.myconfigwithflagname", "myval2"));
+        assertEquals(entity.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(MyEntity.MY_CONFIG, "myval1", MyEntity.MY_CONFIG_WITH_FLAGNAME, "myval2"));
+        assertEquals(entity.config().getBag().getAllConfig(), ImmutableMap.of("myentity.myconfig", "myval1", "myentity.myconfigwithflagname", "myval2"));
+        assertEquals(entity.config().getLocalBag().getAllConfig(), ImmutableMap.of("myentity.myconfig", "myval1", "myentity.myconfigwithflagname", "myval2"));
     }
 
     @Test
@@ -99,19 +100,19 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         EntityInternal entity = mgmt.getEntityManager().createEntity(EntitySpec.create(MyEntity.class)
                 .configure("myconfigflagname", "myval"));
         
-        assertEquals(entity.getAllConfig(), ImmutableMap.of(MyEntity.MY_CONFIG_WITH_FLAGNAME, "myval"));
-        assertEquals(entity.getAllConfigBag().getAllConfig(), ImmutableMap.of("myentity.myconfigwithflagname", "myval"));
-        assertEquals(entity.getLocalConfigBag().getAllConfig(), ImmutableMap.of("myentity.myconfigwithflagname", "myval"));
+        assertEquals(entity.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(MyEntity.MY_CONFIG_WITH_FLAGNAME, "myval"));
+        assertEquals(entity.config().getBag().getAllConfig(), ImmutableMap.of("myentity.myconfigwithflagname", "myval"));
+        assertEquals(entity.config().getLocalBag().getAllConfig(), ImmutableMap.of("myentity.myconfigwithflagname", "myval"));
     }
 
-    // TODO Which way round should it be?!
+    // config key name takes priority
     @Test(enabled=false)
     public void testPrefersFlagNameOverConfigKeyName() throws Exception {
         EntityInternal entity = mgmt.getEntityManager().createEntity(EntitySpec.create(MyEntity.class)
                 .configure("myconfigflagname", "myval")
                 .configure("myentity.myconfigwithflagname", "shouldIgnoreAndPreferFlagName"));
         
-        assertEquals(entity.getAllConfig(), ImmutableMap.of(MyEntity.MY_CONFIG_WITH_FLAGNAME, "myval"));
+        assertEquals(entity.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(MyEntity.MY_CONFIG_WITH_FLAGNAME, "myval"));
     }
 
     @Test
@@ -119,9 +120,9 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         EntityInternal entity = mgmt.getEntityManager().createEntity(EntitySpec.create(MyEntity.class)
                 .configure("notThere", "notThereVal"));
         
-        assertEquals(entity.getAllConfig(), ImmutableMap.of(ConfigKeys.newConfigKey(Object.class, "notThere"), "notThereVal"));
-        assertEquals(entity.getAllConfigBag().getAllConfig(), ImmutableMap.of("notThere", "notThereVal"));
-        assertEquals(entity.getLocalConfigBag().getAllConfig(), ImmutableMap.of("notThere", "notThereVal"));
+        assertEquals(entity.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(ConfigKeys.newConfigKey(Object.class, "notThere"), "notThereVal"));
+        assertEquals(entity.config().getBag().getAllConfig(), ImmutableMap.of("notThere", "notThereVal"));
+        assertEquals(entity.config().getLocalBag().getAllConfig(), ImmutableMap.of("notThere", "notThereVal"));
     }
     
     @Test
@@ -134,11 +135,11 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         EntityInternal child = mgmt.getEntityManager().createEntity(EntitySpec.create(MyChildEntity.class)
                 .parent(entity));
 
-        assertEquals(child.getAllConfig(), ImmutableMap.of(MyChildEntity.MY_CHILD_CONFIG, "myval1", 
+        assertEquals(child.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(MyChildEntity.MY_CHILD_CONFIG, "myval1", 
             ConfigKeys.newConfigKey(Object.class, "mychildconfigflagname"), "myval2",
             ConfigKeys.newConfigKey(Object.class, "notThere"), "notThereVal"));
-        assertEquals(child.getAllConfigBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfig", "myval1", "mychildconfigflagname", "myval2", "notThere", "notThereVal"));
-        assertEquals(child.getLocalConfigBag().getAllConfig(), ImmutableMap.of());
+        assertEquals(child.config().getBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfig", "myval1", "mychildconfigflagname", "myval2", "notThere", "notThereVal"));
+        assertEquals(child.config().getLocalBag().getAllConfig(), ImmutableMap.of());
     }
     
     @Test
@@ -149,9 +150,9 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         EntityInternal child = mgmt.getEntityManager().createEntity(EntitySpec.create(MyChildEntity.class)
                 .parent(entity));
 
-        assertEquals(child.getAllConfig(), ImmutableMap.of(MyEntity.MY_CONFIG, "myval1"));
-        assertEquals(child.getAllConfigBag().getAllConfig(), ImmutableMap.of("myentity.myconfig", "myval1"));
-        assertEquals(child.getLocalConfigBag().getAllConfig(), ImmutableMap.of());
+        assertEquals(child.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(MyEntity.MY_CONFIG, "myval1"));
+        assertEquals(child.config().getBag().getAllConfig(), ImmutableMap.of("myentity.myconfig", "myval1"));
+        assertEquals(child.config().getLocalBag().getAllConfig(), ImmutableMap.of());
     }
     
     @Test
@@ -165,25 +166,25 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
                 .configure("mychildentity.myconfigwithflagname", "overrideMyval")
                 .configure("notThere", "overrideNotThereVal"));
 
-        assertEquals(child.getAllConfig(), ImmutableMap.of(MyChildEntity.MY_CHILD_CONFIG_WITH_FLAGNAME, "overrideMyval",
+        assertEquals(child.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(MyChildEntity.MY_CHILD_CONFIG_WITH_FLAGNAME, "overrideMyval",
             ConfigKeys.newConfigKey(Object.class, "notThere"), "overrideNotThereVal"));
-        assertEquals(child.getAllConfigBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfigwithflagname", "overrideMyval", "notThere", "overrideNotThereVal"));
-        assertEquals(child.getLocalConfigBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfigwithflagname", "overrideMyval", "notThere", "overrideNotThereVal"));
+        assertEquals(child.config().getBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfigwithflagname", "overrideMyval", "notThere", "overrideNotThereVal"));
+        assertEquals(child.config().getLocalBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfigwithflagname", "overrideMyval", "notThere", "overrideNotThereVal"));
     }
     
     @Test
     public void testChildCanOverrideConfigUsingFlagName() throws Exception {
         EntityInternal entity = mgmt.getEntityManager().createEntity(EntitySpec.create(MyEntity.class)
                 .configure(MyChildEntity.MY_CHILD_CONFIG_WITH_FLAGNAME, "myval"));
-        assertEquals(entity.getAllConfig(), ImmutableMap.of(MyChildEntity.MY_CHILD_CONFIG_WITH_FLAGNAME, "myval"));
+        assertEquals(entity.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(MyChildEntity.MY_CHILD_CONFIG_WITH_FLAGNAME, "myval"));
 
         EntityInternal child = mgmt.getEntityManager().createEntity(EntitySpec.create(MyChildEntity.class)
                 .parent(entity)
                 .configure("mychildconfigflagname", "overrideMyval"));
 
-        assertEquals(child.getAllConfig(), ImmutableMap.of(MyChildEntity.MY_CHILD_CONFIG_WITH_FLAGNAME, "overrideMyval"));
-        assertEquals(child.getAllConfigBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfigwithflagname", "overrideMyval"));
-        assertEquals(child.getLocalConfigBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfigwithflagname", "overrideMyval"));
+        assertEquals(child.config().getBag().getAllConfigAsConfigKeyMap(), ImmutableMap.of(MyChildEntity.MY_CHILD_CONFIG_WITH_FLAGNAME, "overrideMyval"));
+        assertEquals(child.config().getBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfigwithflagname", "overrideMyval"));
+        assertEquals(child.config().getLocalBag().getAllConfig(), ImmutableMap.of("mychildentity.myconfigwithflagname", "overrideMyval"));
     }
 
     @Test
@@ -208,6 +209,32 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         
         assertEquals(entity.config().get(TestEntity.CONF_MAP_THING.subKey("mysub")), "myval");
         assertEquals(entity.config().getNonBlocking(TestEntity.CONF_MAP_THING.subKey("mysub")).get(), "myval");
+    }
+    
+    @Test
+    public void testGetConfigMapWithCoercedStringToMap() throws Exception {
+        TestEntity entity = mgmt.getEntityManager().createEntity(EntitySpec.create(TestEntity.class)
+                .configure(TestEntity.CONF_MAP_THING.getName(), "{mysub: myval}"));
+        assertEquals(entity.config().get(TestEntity.CONF_MAP_THING), ImmutableMap.of("mysub", "myval"));
+        
+        TestEntity entity2 = mgmt.getEntityManager().createEntity(EntitySpec.create(TestEntity.class)
+                .configure(TestEntity.CONF_MAP_THING.getName(), "{mysub: {sub2: myval}}"));
+        assertEquals(entity2.config().get(TestEntity.CONF_MAP_THING), ImmutableMap.of("mysub", ImmutableMap.of("sub2", "myval")));
+    }
+    
+    @Test
+    public void testGetConfigMapWithSubValueAsStringNotCoerced() throws Exception {
+        TestEntity entity = mgmt.getEntityManager().createEntity(EntitySpec.create(TestEntity.class)
+                .configure(TestEntity.CONF_MAP_THING, ImmutableMap.of("mysub", "{a: b}")));
+        assertEquals(entity.config().get(TestEntity.CONF_MAP_THING), ImmutableMap.of("mysub", "{a: b}"));
+        
+        TestEntity entity2 = mgmt.getEntityManager().createEntity(EntitySpec.create(TestEntity.class)
+                .configure(TestEntity.CONF_MAP_THING.subKey("mysub"), "{a: b}"));
+        assertEquals(entity2.config().get(TestEntity.CONF_MAP_THING), ImmutableMap.of("mysub", "{a: b}"));
+        
+        TestEntity entity3 = mgmt.getEntityManager().createEntity(EntitySpec.create(TestEntity.class)
+                .configure(TestEntity.CONF_MAP_THING.getName(), ImmutableMap.of("mysub", "{a: b}")));
+        assertEquals(entity3.config().get(TestEntity.CONF_MAP_THING), ImmutableMap.of("mysub", "{a: b}"));
     }
     
     // TODO This now fails because the task has been cancelled, in entity.config().get().
@@ -285,6 +312,13 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
 
     @Test
     public void testConfigureFromKey() throws Exception {
+        MyBaseEntity entity = app.addChild(EntitySpec.create(MyBaseEntity.class)
+                .configure(MyBaseEntity.SUPER_KEY_1, "changed"));
+        assertEquals(entity.getConfig(MyBaseEntity.SUPER_KEY_1), "changed");
+    }
+
+    @Test
+    public void testConfigureFromOverriddenKey() throws Exception {
         MySubEntity entity = app.addChild(EntitySpec.create(MySubEntity.class)
                 .configure(MySubEntity.SUPER_KEY_1, "changed"));
         assertEquals(entity.getConfig(MySubEntity.SUPER_KEY_1), "changed");
@@ -292,21 +326,58 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
 
     @Test
     public void testConfigureFromSuperKey() throws Exception {
+        // use parent key to set
         MySubEntity entity = app.addChild(EntitySpec.create(MySubEntity.class)
                 .configure(MyBaseEntity.SUPER_KEY_1, "changed"));
         assertEquals(entity.getConfig(MySubEntity.SUPER_KEY_1), "changed");
     }
 
     @Test
-    public void testConfigSubMap() throws Exception {
+    public void testConfigureFromStringGetByKey() throws Exception {
+        MySubEntity entity = app.addChild(EntitySpec.create(MySubEntity.class)
+            .configure(MySubEntity.SUPER_KEY_1.getName(), "changed"));
+        assertEquals(entity.getConfig(MySubEntity.SUPER_KEY_1), "changed");
+    }
+    
+    @Test
+    public void testConfigureFromStringGetByExternalKey() throws Exception {
+        // config key is not present on the entity
+        MyBaseEntity entity = app.addChild(EntitySpec.create(MyBaseEntity.class)
+            .configure(MySubEntity.SUB_KEY_2.getName(), "changed"));
+        assertEquals(entity.getConfig(MySubEntity.SUB_KEY_2), "changed");
+        assertEquals(entity.getConfig(ConfigKeys.newConfigKey(Object.class, MySubEntity.SUB_KEY_2.getName())), "changed");
+    }
+    
+    @Test
+    public void testConfigureFromStringGetBySuperKey() throws Exception {
+        MySubEntity entity = app.addChild(EntitySpec.create(MySubEntity.class)
+            .configure(MySubEntity.SUPER_KEY_2.getName(), "changed"));
+        assertEquals(entity.getConfig(MySubEntity.SUPER_KEY_2), "changed");
+    }
+    
+    @Test
+    public void testConfigFilterPresent() throws Exception {
         MySubEntity entity = app.addChild(EntitySpec.create(MySubEntity.class));
         entity.config().set(MyBaseEntity.SUPER_KEY_1, "s1");
         entity.config().set(MySubEntity.SUB_KEY_2, "s2");
-        ConfigMap sub = entity.getConfigMap().submap(ConfigPredicates.nameMatchesGlob("sup*"));
-        Assert.assertEquals(sub.getConfigRaw(MyBaseEntity.SUPER_KEY_1, true).get(), "s1");
-        Assert.assertFalse(sub.getConfigRaw(MySubEntity.SUB_KEY_2, true).isPresent());
+        Set<ConfigKey<?>> filteredKeys = entity.config().getInternalConfigMap().findKeysPresent(ConfigPredicates.nameMatchesGlob("sup*"));
+        Assert.assertTrue(filteredKeys.contains(MyBaseEntity.SUPER_KEY_1));
+        Assert.assertFalse(filteredKeys.contains(MySubEntity.SUB_KEY_2));
+        Assert.assertFalse(filteredKeys.contains(MyBaseEntity.SUPER_KEY_2));
+        Asserts.assertSize(filteredKeys, 1);
     }
 
+    @Test
+    public void testConfigFilterDeclared() throws Exception {
+        MySubEntity entity = app.addChild(EntitySpec.create(MySubEntity.class));
+        Set<ConfigKey<?>> filteredKeys = entity.config().getInternalConfigMap().findKeysDeclared(ConfigPredicates.nameMatchesGlob("sup*"));
+        Assert.assertTrue(filteredKeys.contains(MyBaseEntity.SUPER_KEY_1), "keys are: "+filteredKeys);
+        Assert.assertTrue(filteredKeys.contains(MyBaseEntity.SUPER_KEY_2));
+        Assert.assertFalse(filteredKeys.contains(MySubEntity.SUB_KEY_2));
+        Asserts.assertSize(filteredKeys, 2);
+    }
+
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     @Test(expectedExceptions=IllegalArgumentException.class)
     public void testFailFastOnInvalidConfigKeyCoercion() throws Exception {
         MyOtherEntity entity = app.addChild(EntitySpec.create(MyOtherEntity.class));
@@ -314,10 +385,12 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         entity.config().set((ConfigKey)key, "thisisnotanint");
     }
 
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     @Test
     public void testGetConfigWithDeferredSupplierReturnsSupplied() throws Exception {
         DeferredSupplier<Integer> supplier = new DeferredSupplier<Integer>() {
             volatile int next = 0;
+            @Override
             public Integer get() {
                 return next++;
             }
@@ -330,6 +403,7 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         assertEquals(entity.getConfig(MyOtherEntity.INT_KEY), Integer.valueOf(1));
     }
 
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     @Test
     public void testGetConfigWithFutureWaitsForResult() throws Exception {
         LatchingCallable<String> work = new LatchingCallable<String>("abc");
@@ -339,6 +413,7 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         entity.config().set((ConfigKey)MyOtherEntity.STRING_KEY, future);
 
         Future<String> getConfigFuture = executor.submit(new Callable<String>() {
+            @Override
             public String call() {
                 return entity.getConfig(MyOtherEntity.STRING_KEY);
             }});
@@ -359,6 +434,7 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
                 .configure(MyOtherEntity.STRING_KEY, task));
 
         Future<String> getConfigFuture = executor.submit(new Callable<String>() {
+            @Override
             public String call() {
                 return entity.getConfig(MyOtherEntity.STRING_KEY);
             }});
@@ -380,6 +456,7 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
                 .configure(MyOtherEntity.STRING_KEY, task));
 
         Future<String> getConfigFuture = executor.submit(new Callable<String>() {
+            @Override
             public String call() {
                 return entity.getConfig(MyOtherEntity.STRING_KEY);
             }});
@@ -415,6 +492,7 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
     }
 
     @ImplementedBy(MyOtherEntityImpl.class)
+    @SuppressWarnings("rawtypes")
     public interface MyOtherEntity extends Entity {
         public static final ConfigKey<Integer> INT_KEY = ConfigKeys.newIntegerConfigKey("intKey", "int key", 1);
         public static final ConfigKey<String> STRING_KEY = ConfigKeys.newStringConfigKey("stringKey", "string key", null);
@@ -470,4 +548,13 @@ public class EntityConfigTest extends BrooklynAppUnitTestSupport {
         @SetFromFlag("mychildconfigflagname")
         public static final ConfigKey<String> MY_CHILD_CONFIG_WITH_FLAGNAME = ConfigKeys.newStringConfigKey("mychildentity.myconfigwithflagname");
     }
+    
+    @Test
+    public void testInheritedDefault() {
+        final Entity e1 = app.addChild(EntitySpec.create(MyBaseEntity.class));
+        final Entity e2 = e1.addChild(EntitySpec.create(BasicEntity.class));
+        Assert.assertEquals(e2.config().get(MyBaseEntity.SUPER_KEY_1), MyBaseEntity.SUPER_KEY_1.getDefaultValue());
+        Assert.assertEquals(e2.config().get(ConfigKeys.newStringConfigKey(MyBaseEntity.SUPER_KEY_1.getName())), MyBaseEntity.SUPER_KEY_1.getDefaultValue());
+    }
+    
 }
