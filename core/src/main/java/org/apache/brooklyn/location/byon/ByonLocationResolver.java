@@ -62,7 +62,6 @@ import com.google.common.net.HostAndPort;
  * 
  * @author aled
  */
-@SuppressWarnings({"rawtypes"})
 public class ByonLocationResolver extends AbstractLocationResolver {
 
     public static final Logger log = LoggerFactory.getLogger(ByonLocationResolver.class);
@@ -95,6 +94,7 @@ public class ByonLocationResolver extends AbstractLocationResolver {
         return new AbstractLocationResolver.SpecParser(getPrefix()).setExampleUsage("\"byon(hosts='addr1,addr2')\"");
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     protected ConfigBag extractConfig(Map<?,?> locationFlags, String spec, LocationRegistry registry) {
         ConfigBag config = super.extractConfig(locationFlags, spec, registry);
@@ -153,6 +153,7 @@ public class ByonLocationResolver extends AbstractLocationResolver {
         String osFamily = (String) machineConfig.remove(OS_FAMILY.getName());
         String ssh = (String) machineConfig.remove("ssh");
         String winrm = (String) machineConfig.remove("winrm");
+        @SuppressWarnings("unchecked")
         Map<Integer, String> tcpPortMappings = (Map<Integer, String>) machineConfig.get("tcpPortMappings");
         
         checkArgument(ssh != null ^ winrm != null, "Must specify exactly one of 'ssh' or 'winrm' for machine: %s", valSanitized);

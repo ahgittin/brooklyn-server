@@ -38,7 +38,6 @@ import org.apache.brooklyn.location.byon.FixedListMachineProvisioningLocation;
 import org.apache.brooklyn.location.ssh.SshMachineLocation;
 import org.apache.brooklyn.location.winrm.WinRmMachineLocation;
 import org.apache.brooklyn.test.Asserts;
-import org.apache.brooklyn.util.exceptions.Exceptions;
 import org.apache.brooklyn.util.net.UserAndHostAndPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,6 +94,25 @@ public class ByonLocationsYamlTest extends AbstractYamlTest {
                 SshMachineLocation.PASSWORD.getName(), "mypassword",
                 "mykey", "myval"));
         assertEquals(machine.getPrivateAddresses(), ImmutableSet.of("10.0.0.1"));
+    }
+    
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testByonMachineConciseSyntax() throws Exception {
+        String yaml = Joiner.on("\n").join(
+                "location:",
+                "  byon:",
+                "    hosts: [ 1.1.1.1 ]",
+                "    user: myuser",
+                "    password: mypassword",
+                "services:",
+                "- serviceType: org.apache.brooklyn.entity.stock.BasicApplication");
+        
+        Entity app = createStartWaitAndLogApplication(yaml);
+        FixedListMachineProvisioningLocation<SshMachineLocation> loc = (FixedListMachineProvisioningLocation<SshMachineLocation>) Iterables.get(app.getLocations(), 0);
+        Set<SshMachineLocation> machines = loc.getAvailable();
+        SshMachineLocation machine = Iterables.getOnlyElement(machines);
+        assertEquals(machine.getAddress().getHostAddress(), "1.1.1.1");
     }
 
     @Test
