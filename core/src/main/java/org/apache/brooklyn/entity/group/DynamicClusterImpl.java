@@ -861,7 +861,7 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
         final Iterable<Entity> removedStartables = (Iterable<Entity>) (Iterable<?>) Iterables.filter(removedEntities, Startable.class);
         ImmutableList.Builder<Task<?>> tasks = ImmutableList.builder();
         for (Entity member : removedStartables) {
-            tasks.add(newThrottledEffectorTask(member, Startable.STOP, Collections.emptyMap()));
+            tasks.add(newStopChildOnShrinkTask(member));
         }
         try {
             DynamicTasks.get( Tasks.parallel(tasks.build()) );
@@ -873,6 +873,13 @@ public class DynamicClusterImpl extends AbstractGroupImpl implements DynamicClus
                 discardNode(removedEntity);
             }
         }
+    }
+
+    protected Task<?> newStopChildOnShrinkTask(Entity member) {
+        // overridden sometimes eg TOSCA to do a delete
+        // TODO if overridden to do a deletion, we might need to remove the child first here,
+        // otherwise we might have a member who is unmanaged
+        return newThrottledEffectorTask(member, Startable.STOP, Collections.emptyMap());
     }
 
     protected ReferenceWithError<Optional<Entity>> addInSingleLocation(@Nullable Location location, Map<?,?> flags) {
