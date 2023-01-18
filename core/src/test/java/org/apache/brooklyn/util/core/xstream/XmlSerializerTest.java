@@ -24,6 +24,7 @@ import com.thoughtworks.xstream.annotations.XStreamConverter;
 import com.thoughtworks.xstream.converters.basic.BooleanConverter;
 import com.thoughtworks.xstream.converters.extended.ToAttributedValueConverter;
 import java.io.Serializable;
+import java.io.StringReader;
 import java.util.Arrays;
 import java.util.function.Supplier;
 import org.apache.brooklyn.test.Asserts;
@@ -299,4 +300,105 @@ public class XmlSerializerTest {
             return (messageType == o.messageType) && important == o.important && content.equals(o.content);
         }
     }
+
+    static class HowDoesItHandleTransients0 {
+        String a;
+        Object b;
+        HowDoesItHandleTransients c;
+    }
+
+    static class HowDoesItHandleTransients1 {
+        String a;
+        transient Object b;
+        transient HowDoesItHandleTransients c;
+    }
+
+    static class HowDoesItHandleTransients2 {
+        String a;
+        transient Object b;
+
+        //HowDoesItHandleTransients c;
+    }
+
+    static class HowDoesItHandleTransients {
+        String a;
+
+        // case 0, Object
+//        Object b;
+        // case 1 transient
+        transient Object b;
+
+        // case 0, HowDoesItHandleTransients
+//        HowDoesItHandleTransients c;
+        // case 1, transient
+        transient HowDoesItHandleTransients c;
+        // case 2, Object
+//        Object c;
+        // case 3, String
+//        String c;
+    }
+
+
+
+    @Test
+    public void testHowDoesItHandleTransients() {
+//        HowDoesItHandleTransients y1 = new HowDoesItHandleTransients();
+//        y1.a = "hello1a";
+//        y1.b = "hello1b";
+//        HowDoesItHandleTransients y2 = new HowDoesItHandleTransients();
+//        y2.a = "hello2a";
+//        y2.b = "hello2b";
+//        HowDoesItHandleTransients x = new HowDoesItHandleTransients();
+//        x.a = "hello";
+//        x.b = y1;
+//        x.c = y2;
+//        LOG.info("OUTPUT:\n" + serializer.toString(x));
+
+        {
+            // this is the output of the above when HowDoesItHandleTransients looks like HowDoesItHandleTransients0
+            String XML0 = "<org.apache.brooklyn.util.core.xstream.XmlSerializerTest_-HowDoesItHandleTransients>\n" +
+                    "  <a>hello</a>\n" +
+                    "  <b class=\"org.apache.brooklyn.util.core.xstream.XmlSerializerTest$HowDoesItHandleTransients\">\n" +
+                    "    <a>hello1a</a>\n" +
+                    "    <b class=\"string\">hello1b</b>\n" +
+                    "  </b>\n" +
+                    "  <c>\n" +
+                    "    <a>hello2a</a>\n" +
+                    "    <b class=\"string\">hello2b</b>\n" +
+                    "  </c>\n" +
+                    "</org.apache.brooklyn.util.core.xstream.XmlSerializerTest_-HowDoesItHandleTransients>";
+
+            // we want to make sure it can be read in case 0 or 1
+            // fails in cases 2 and 3 because c is not known to have field 'a"
+            HowDoesItHandleTransients result = (HowDoesItHandleTransients) serializer.deserialize(new StringReader(XML0));
+            Asserts.assertEquals(result.a, "hello");
+            Asserts.assertNull(result.b);
+            Asserts.assertNull(result.c);
+        }
+
+        {
+            // and this is the above but we mangle c to be malformed
+            String XML0_bogus = "<org.apache.brooklyn.util.core.xstream.XmlSerializerTest_-HowDoesItHandleTransients>\n" +
+                    "  <a>hello</a>\n" +
+                    "  <b class=\"org.apache.brooklyn.util.core.xstream.XmlSerializerTest$HowDoesItHandleTransients\">\n" +
+                    "    <a>hello1a</a>\n" +
+                    "    <b class=\"string\">hello1b</b>\n" +
+                    "  </b>\n" +
+                    "  <c>\n" +
+                    "    This is not valid and will cause an error if HowDoesItHandleTransients looks like HowDoesItHandleTransients0\n" +
+                    "    or HowDoesItHandleTransients2\n" +
+                    "    but should work in the case of HowDoesItHandleTransients1 where c is transient.\n" +
+                    "  </c>\n" +
+                    "</org.apache.brooklyn.util.core.xstream.XmlSerializerTest_-HowDoesItHandleTransients>";
+            HowDoesItHandleTransients result = (HowDoesItHandleTransients) serializer.deserialize(new StringReader(XML0_bogus));
+            Asserts.assertEquals(result.a, "hello");
+            // populated in case 0, ignored (null) in case 1
+            Asserts.assertNull(result.b);
+            // error here in case 0, ignored (null) in case 1
+            // in case 2, it reads an empty object, ignoring the string value (?!)
+            // in case 3, it gets the string
+            Asserts.assertNull(result.c);
+        }
+    }
+
 }
